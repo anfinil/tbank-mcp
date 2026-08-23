@@ -1,6 +1,6 @@
 [project]
 name = "tbank-mcp"
-version = "0.2.1"
+version = "0.2.2"
 description = "MCP server for the T-Bank (Т-Банк) mobile personal-banking API (capture-driven, headless, pinned-root TLS)."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -48,6 +48,9 @@ tbank-mcp = "tbank_mcp.server:main"
 # user's own terminal. A pip install must therefore ship the login CLI too, or
 # the server is unusable on a fresh device.
 tbank-mcp-login = "tbank_mcp.login_cli:main"
+# Copies the shipped skills into ~/.claude/skills and removes stale copies under
+# retired names — the README's old manual rm+cp loop, packaged.
+tbank-mcp-skills = "tbank_mcp.skills_cli:main"
 
 [build-system]
 # setuptools>=77.0.3 is the first release that accepts the PEP 639 SPDX
@@ -65,4 +68,5 @@ packages = ["tbank_mcp"]
 # without them fails certificate verification on every bank host (misdiagnosed
 # as "the connection is being intercepted") and flows() answers "not found" —
 # tests/test_tls_trust.py builds a wheel and asserts both files are in it.
-tbank_mcp = ["ca/roots/*.pem", "docs/*.md"]
+# Skills ship as SKILL.md only — evals/ are dev fixtures, not user content.
+tbank_mcp = ["ca/roots/*.pem", "docs/*.md", "skills/*/SKILL.md"]

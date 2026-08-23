@@ -4,17 +4,24 @@
 
 **T-Bank (Т-Банк) MCP** — mobile banking API server for Claude Code, Codex, ChatGPT, and other MCP-capable agents.
 
+[![PyPI](https://img.shields.io/pypi/v/tbank-mcp?style=flat-square)](https://pypi.org/project/tbank-mcp/)
+[![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/install-mcp?name=tbank&config=eyJjb21tYW5kIjoidGJhbmstbWNwIn0%3D)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522tbank%2522%252C%2522command%2522%253A%2522tbank-mcp%2522%257D)
+[![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_Server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect?url=vscode-insiders%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522tbank%2522%252C%2522command%2522%253A%2522tbank-mcp%2522%257D)
+
+The buttons register the `tbank-mcp` command — run `pip install tbank-mcp` first.
+
 ## Features
 
 - **90 tools**: accounts, cards, documents, operations, grocery ordering, cinema and
   concert tickets, train and flight booking, hotel search, orders, transfers
   (including payment by bank requisites, from a scanned invoice QR), messenger,
   investments
-- **11 skills**, entered through the `tbank` router skill: grocery order, tickets,
-  travel, transfer, bill pay, cards & documents, messenger, budget analysis,
-  invest advisor, login
+- **A skill for every vertical**, entered through the `tbank` router skill: grocery
+  order, tickets, travel, transfer, bill pay, cards & documents, messenger, budget
+  analysis, invest advisor, login
 - **Pinned CA trust**: system store + the Russian Trusted Root CA (Минцифры), which no
-  OS ships and every `*.t-bank-app.ru` host needs — that is most of the 22 hosts this
+  OS ships and every `*.t-bank-app.ru` host needs — that is most of the hosts this
   MCP talks to. Shipped in `tbank_mcp/ca/roots/`, pinned by SHA-256. Leaf/intermediate rotation
   needs no action; a root rotation is a PEM drop into `tbank_mcp/ca/roots/` (or `TBANK_EXTRA_CA`).
   The verify bundle is (re)generated from that material into
@@ -26,7 +33,7 @@
 
 ## Quick Install
 
-### As a Claude Code plugin (server + all 11 skills in one step)
+### As a Claude Code plugin (server + every skill in one step)
 
 ```bash
 /plugin marketplace add icyberdeveloper/tbank-mcp
@@ -45,23 +52,25 @@ not something to download behind your back — install it yourself if you want t
 flow:
 
 ```bash
-~/.claude/plugins/*/tbank/.venv/bin/python -m playwright install chromium
+~/.claude/plugins/cache/tbank-mcp/tbank/*/.venv/bin/python -m playwright install chromium
 ```
 
-### From PyPI (server only, no skills)
+### From PyPI
 
 ```bash
 pip install tbank-mcp
 tbank-mcp-login +7XXXXXXXXXX   # first login: SMS code + password in YOUR terminal, not the LLM
 claude mcp add tbank -- tbank-mcp
+tbank-mcp-skills               # optional: the Claude Code skills, into ~/.claude/skills
 ```
 
-The `tbank-mcp` console script starts the stdio server; the pinned CA roots and
-the flows reference ship inside the wheel, so it runs from anywhere.
+The `tbank-mcp` console script starts the stdio server; the pinned CA roots, the
+flows reference and the skills all ship inside the wheel, so it runs from anywhere.
 `tbank-mcp-login` is the same login CLI as the repo's `login_cli.py` — both write
-the session to the same file the server reads. Skills are
-not on PyPI — install the plugin (or copy `skills/` from the repo) to get them.
-The grocery checkout browser stays opt-in here too:
+the session to the same file the server reads. `tbank-mcp-skills` installs the
+skills for Claude Code (default `~/.claude/skills`, `--target` for elsewhere) and,
+unlike a plain `cp`, first removes stale copies under retired names — re-run it
+after upgrades. The grocery checkout browser stays opt-in here too:
 `python -m playwright install chromium`.
 
 ### Manually (clone, no plugin)
@@ -77,12 +86,10 @@ python -m playwright install chromium
 claude mcp add tbank -- ./.venv/bin/python -m tbank_mcp.server
 
 # Skills — a COPY, so it does not follow the repo. Re-run after every pull, or
-# the installed skills quietly describe an older version of these tools.
-# Remove this repo's own skills first (plain cp never deletes a skill that was
-# RENAMED, so its old copy lingers and the agent loads the stale one):
-for d in skills/*/; do rm -rf ~/.claude/skills/"$(basename "$d")"; done
-rm -rf ~/.claude/skills/tbank-travel-search   # retired 2026-08 → now tbank-travel
-cp -r skills/* ~/.claude/skills/
+# the installed skills quietly describe an older version of these tools. The
+# installer also removes stale copies under RENAMED skill names, which a plain
+# cp never does — the agent would keep loading the stale one:
+.venv/bin/tbank-mcp-skills
 ```
 
 ## 🔒 Login — the password never reaches the agent
@@ -156,6 +163,44 @@ read anywhere: the phone is always a command-line argument.
 }
 ```
 
+With a `pip install tbank-mcp` the whole entry shrinks to `"command": "tbank-mcp"` —
+no paths, no cwd.
+
+### Use with Cursor
+
+Click the **Install MCP Server** button above, or open the **Customize** page from
+Cursor's sidebar to add the server, or create `~/.cursor/mcp.json` (global) /
+`.cursor/mcp.json` (per-project):
+
+```json
+{
+  "mcpServers": {
+    "tbank": { "command": "tbank-mcp" }
+  }
+}
+```
+
+Cursor renders MCP elicitation, so the payment-confirmation buttons work in chat.
+
+### Use with Cherry Studio
+
+**Settings → MCP → MCP Servers → Add**: type `stdio`, command `tbank-mcp`, no
+arguments. Save, enable the server, wait for the healthy status.
+
+> Cherry Studio does not render MCP elicitation yet (open request
+> [CherryHQ/cherry-studio#9145](https://github.com/CherryHQ/cherry-studio/issues/9145)),
+> so reading works but the money tools refuse to execute there — by design, not by
+> accident.
+
+### Use with Goose
+
+CLI: `goose configure` → **Add Extension** → **Command-line Extension**, name
+`tbank`, command `tbank-mcp`. Desktop: sidebar → **Extensions** → **Add custom
+extension**, same values.
+
+Goose renders elicitation in both Desktop and CLI; its confirmation forms time out
+after 5 minutes, so answer payment confirmations promptly.
+
 Reading works in any MCP client. **Paying needs a client that renders MCP
 elicitation** — the money tools confirm the sum with a button the user presses
 («Перевести/Отмена», «Оплатить …?»), and a client without that capability is refused
@@ -193,7 +238,7 @@ Russian and so is the person reading the answer.
 | **Invest** | `invest_accounts`, `invest_portfolio`, `invest_operations`, `invest_securities` |
 | **Utility** | `flows`, `diagnostics`, `debug_report` |
 
-`get_data(section)` covers 40 sections: subscriptions, credit_schedule, statements, loans, invest_accounts, pension, etc. (`invest_portfolio` is a tool of its own, not a section — see the docstring for the full list.)
+`get_data(section)` covers dozens of read sections: subscriptions, credit_schedule, statements, loans, invest_accounts, pension, etc. (`invest_portfolio` is a tool of its own, not a section — see the docstring for the full list.)
 
 Grocery tools (`grocery_search`, `grocery_plan_order`, `grocery_add_to_cart`, `grocery_set_cart`, `grocery_cart`, `grocery_checkout`) require `app_id` + `point_id` taken from `grocery_stores()` — there's no silent default store, so add/cart/checkout always operate on the same cart, instead of reporting an empty one right after something was added to a different store's.
 
@@ -256,7 +301,7 @@ live bank.
 No pytest — the tests are standalone scripts. Run them all:
 
 ```bash
-.venv/bin/python tests/run_all.py            # every file, ~35 s, offline
+.venv/bin/python tests/run_all.py            # every file, under a minute, offline
 .venv/bin/python tests/run_all.py transfer   # only files matching "transfer"
 ```
 
@@ -295,7 +340,7 @@ present the tests additionally check the fixtures have not drifted from it.
   payment ids — are replaced in the recorded line, both to keep them out and because
   the report groups by that line. The `debug_report` tool reads it. On by default;
   `TBANK_TRACE=0` disables it, `TBANK_TRACE_FILE` moves it, and it rotates at 5 MB.
-- **`TBANK_CONFIRM_ABOVE`** — the ruble threshold from which the seven paying tools
+- **`TBANK_CONFIRM_ABOVE`** — the ruble threshold from which the paying tools
   that debit on the spot (`transfer`, `transfer_requisites`, `pay_bill`,
   `ticket_pay`, `grocery_checkout`, `train_pay`, `flight_book`)
   show the confirmation button — an MCP elicitation dialog («Перевести/Отмена»,
@@ -338,7 +383,7 @@ present the tests additionally check the fixtures have not drifted from it.
     one signature: `_unwrap` raising `HTTP_200` because the body no longer parses.
     Compare `debug_report()` before and after each step.
 - Money tools (`transfer`, `transfer_requisites`, `grocery_checkout`, `ticket_pay`,
-  `pay_bill`, `confirm_payment`) require confirmation of a specific amount — "buy it"
+  `pay_bill`, `train_pay`, `flight_book`, `confirm_payment`) require confirmation of a specific amount — "buy it"
   is not a confirmation. That confirmation is the button the tool shows itself
   (elicitation, see `TBANK_CONFIRM_ABOVE` above) with the real total — the agent
   shows the details beforehand (recipient, requisites, cart, seats + fee) and does

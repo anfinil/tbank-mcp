@@ -1,7 +1,7 @@
 {
   "identifier": "icyberdeveloper-tbank-mcp",
   "name": "T-Bank MCP",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Unofficial MCP server for T-Bank (Т-Банк, ex-Tinkoff) mobile banking: accounts, cards, transfers, bill pay, grocery ordering, cinema and concert tickets, train and flight search. Money-moving tools confirm every payment through MCP elicitation; the password never travels through the agent.",
   "author": "icyberdeveloper",
   "authorUrl": "https://github.com/icyberdeveloper",

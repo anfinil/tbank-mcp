@@ -78,7 +78,7 @@ DOCS = ["tbank_mcp/docs/FLOWS.md", "README.md", "docs/MOBILE_CHECKOUT.md"]
 
 def doc_files():
     out = [os.path.join(ROOT, d) for d in DOCS if os.path.exists(os.path.join(ROOT, d))]
-    skills = os.path.join(ROOT, "skills")
+    skills = os.path.join(ROOT, "tbank_mcp", "skills")
     if os.path.isdir(skills):
         for name in sorted(os.listdir(skills)):
             p = os.path.join(skills, name, "SKILL.md")
@@ -112,7 +112,7 @@ def test_evals_only_ask_for_tools_that_exist():
     # No space before the paren: eval prose says «без query (или …)», which is not
     # a call, while every real call is written name(...).
     call = re.compile(r"\b([a-z][a-z0-9_]{3,})\(")
-    for path in sorted(glob.glob(os.path.join(ROOT, "skills", "*", "evals", "*.json"))):
+    for path in sorted(glob.glob(os.path.join(ROOT, "tbank_mcp", "skills", "*", "evals", "*.json"))):
         rel = os.path.relpath(path, ROOT)
         for name in set(call.findall(open(path, encoding="utf-8").read())):
             check(name in tools or name in NOT_TOOLS,
@@ -144,8 +144,8 @@ def test_the_marketplace_entry_matches_the_plugin():
     if not os.path.exists(plugin_path):
         return
     p = _json.load(open(plugin_path, encoding="utf-8"))
-    n = len([d for d in os.listdir(os.path.join(ROOT, "skills"))
-             if os.path.exists(os.path.join(ROOT, "skills", d, "SKILL.md"))])
+    n = len([d for d in os.listdir(os.path.join(ROOT, "tbank_mcp", "skills"))
+             if os.path.exists(os.path.join(ROOT, "tbank_mcp", "skills", d, "SKILL.md"))])
     check(m.get("metadata", {}).get("version") == p.get("version"),
           f"marketplace version {m.get('metadata', {}).get('version')!r} != "
           f"plugin version {p.get('version')!r}")
@@ -346,7 +346,7 @@ def test_the_documented_counts_match_the_registry():
     # A whole-file search passes as soon as the tool is named anywhere — and it was,
     # in its own section — while the Notes list that flows() actually serves still
     # named three of five. The artifact an agent reads is the one to assert on.
-    router = os.path.join(ROOT, "skills", "tbank", "SKILL.md")
+    router = os.path.join(ROOT, "tbank_mcp", "skills", "tbank", "SKILL.md")
     router_text = open(router, encoding="utf-8").read() if os.path.exists(router) else ""
     served = server.flows("")
     for label, blob in (("README", readme),
@@ -425,7 +425,7 @@ def test_disproven_claims_do_not_come_back():
     # The scan is only worth its exemption if it covers what it claims to. A skill
     # or a doc that stopped being scanned would silently narrow it.
     import glob
-    for required in (glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md"))
+    for required in (glob.glob(os.path.join(ROOT, "tbank_mcp", "skills", "*", "SKILL.md"))
                      + [os.path.join(ROOT, "tbank_mcp", "docs", "FLOWS.md"),
                         os.path.join(ROOT, "README.md"),
                         os.path.join(ROOT, "tbank_mcp", "client.py"),
@@ -458,10 +458,10 @@ def test_a_renamed_skill_leaves_no_live_reference():
     import glob
     # (a) no directory under skills/ carries a retired name.
     for name in RETIRED_SKILL_NAMES:
-        check(not os.path.isdir(os.path.join(ROOT, "skills", name)),
+        check(not os.path.isdir(os.path.join(ROOT, "tbank_mcp", "skills", name)),
               f"a retired skill directory is back: skills/{name}")
     # (b) no SKILL.md, router or source file references it as if it were live.
-    scanned = glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md"))
+    scanned = glob.glob(os.path.join(ROOT, "tbank_mcp", "skills", "*", "SKILL.md"))
     scanned += glob.glob(os.path.join(ROOT, "tbank_mcp", "*.py"))
     for f in scanned:
         text = open(f, encoding="utf-8").read()
@@ -498,19 +498,19 @@ def test_every_tool_is_reachable_from_a_skill():
     tools = tool_names()
     skill_text = "\n".join(
         open(p, encoding="utf-8").read()
-        for p in glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md")))
+        for p in glob.glob(os.path.join(ROOT, "tbank_mcp", "skills", "*", "SKILL.md")))
     missing = sorted(t for t in tools if f"`{t}(" not in skill_text
                      and f"`{t}`" not in skill_text)
     check(not missing,
           f"tools no skill mentions (an agent will never reach them): {', '.join(missing)}")
 
     # The router must actually route: every OTHER skill has to be named in it.
-    router = os.path.join(ROOT, "skills", "tbank", "SKILL.md")
+    router = os.path.join(ROOT, "tbank_mcp", "skills", "tbank", "SKILL.md")
     check(os.path.exists(router), "the tbank router skill is missing")
     if os.path.exists(router):
         text = open(router, encoding="utf-8").read()
         others = [os.path.basename(os.path.dirname(p))
-                  for p in glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md"))
+                  for p in glob.glob(os.path.join(ROOT, "tbank_mcp", "skills", "*", "SKILL.md"))
                   if os.path.basename(os.path.dirname(p)) != "tbank"]
         unrouted = sorted(s for s in others if s not in text)
         check(not unrouted, f"the router does not mention: {', '.join(unrouted)}")
@@ -522,26 +522,29 @@ def test_plugin_ships_every_skill():
     """A skill on disk but absent from the plugin ships to nobody — that is how the
     tickets skill was invisible to plugin installs.
 
-    The manifest no longer lists skills: Claude Code scans skills/ by default, so
-    every directory with a SKILL.md ships automatically and the hand-kept list was
-    only a chance to forget one. What has to hold now is that nothing REPLACES that
-    default — a `skills` override narrows the scan back down to whatever it names."""
+    The `skills` field holds DIRECTORIES to scan (they add to the default skills/
+    scan), not per-skill entries. Skills moved into tbank_mcp/skills so the wheel
+    ships them; there is no repo-root skills/ any more, so the field is the only
+    thing that makes the plugin ship skills at all — every on-disk skill must live
+    under one of the scanned directories."""
     import glob
     import json as _json
     manifest = os.path.join(ROOT, ".claude-plugin", "plugin.json")
     check(os.path.exists(manifest), ".claude-plugin/plugin.json is missing")
     if not os.path.exists(manifest):
         return
-    on_disk = {"skills/" + os.path.basename(os.path.dirname(p))
-               for p in glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md"))}
+    on_disk = {os.path.dirname(os.path.relpath(p, ROOT))
+               for p in glob.glob(os.path.join(ROOT, "tbank_mcp", "skills", "*", "SKILL.md"))}
     listed = _json.load(open(manifest, encoding="utf-8")).get("skills")
-    if listed is None:
-        print(f"  plugin ships all {len(on_disk)} skills (default skills/ scan)")
-        return
-    names = {listed} if isinstance(listed, str) else set(listed)
-    normalised = {n.strip("./").rstrip("/") for n in names}
-    check(on_disk - normalised == set(),
-          f"skills on disk but not shipped: {sorted(on_disk - normalised)}")
+    scan_dirs = {"skills"}  # the default scan, always active
+    if listed is not None:
+        for d in ([listed] if isinstance(listed, str) else listed):
+            scan_dirs.add(d.strip("./").rstrip("/"))
+    shipped = {os.path.dirname(os.path.relpath(p, ROOT))
+               for d in scan_dirs
+               for p in glob.glob(os.path.join(ROOT, d, "*", "SKILL.md"))}
+    check(on_disk - shipped == set(),
+          f"skills on disk but not shipped: {sorted(on_disk - shipped)}")
     print(f"  plugin ships all {len(on_disk)} skills (explicit list)")
 
 

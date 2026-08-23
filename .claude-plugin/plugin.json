@@ -1,7 +1,7 @@
 {
   "name": "tbank",
   "displayName": "T-Bank MCP",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "T-Bank (Т-Банк) MCP — mobile banking API: счета, операции, заказ продуктов, переводы, мессенджер, инвестиции.",
   "author": {
     "name": "icyberdeveloper",
@@ -22,5 +22,6 @@
       "command": "${CLAUDE_PLUGIN_ROOT}/bin/tbank-mcp",
       "cwd": "${CLAUDE_PLUGIN_ROOT}"
     }
-  }
+  },
+  "skills": "./tbank_mcp/skills/"
 }
