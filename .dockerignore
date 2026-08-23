@@ -1,0 +1,17 @@
+.venv/
+.git/
+dist/
+build/
+__pycache__/
+*.pyc
+*.egg-info/
+tests/
+docs/
+.claude-plugin/
+.claude/
+bin/
+*.log
+*.jsonl
+session.json
+captures*.xml
+*.har
