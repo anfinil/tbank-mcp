@@ -31,7 +31,7 @@ os.environ.setdefault("TBANK_ATTEMPTS",
 os.environ.setdefault("TBANK_TRACE_FILE",
                       os.path.join(tempfile.gettempdir(), "tbank-test-calls.jsonl"))
 
-from src.client import MobileSession  # noqa: E402
+from tbank_mcp.client import MobileSession  # noqa: E402
 
 # The GROCERY cancel capture. The ticket one lives under
 # TBANK_TICKET_CANCEL_CAPTURE — see tests/test_booking_and_ranking.py.

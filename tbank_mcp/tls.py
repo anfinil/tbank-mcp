@@ -26,7 +26,7 @@ intermediate rotation a non-event: the bank can (and does) reissue those wheneve
 likes and verification keeps working, because the anchor never moved. The old code
 re-fetched leaves on every failure precisely because it trusted no root — it was
 solving a problem it had created. Roots are long-lived (this one runs to 2032). If a
-root ever IS replaced, drop the new PEM into `ca/roots/` or point `TBANK_EXTRA_CA`
+root ever IS replaced, drop the new PEM into `tbank_mcp/ca/roots/` or point `TBANK_EXTRA_CA`
 at it and it is picked up on the next start, no code change and no release needed;
 the error you get until then names the file to add rather than failing obscurely.
 """
@@ -51,8 +51,14 @@ SYSTEM_CA_CANDIDATES = [
     "/etc/ssl/ca-bundle.pem",
     "/etc/ssl/cert.pem",
 ]
-ROOTS_DIR = os.path.join(_HERE, "..", "ca", "roots")
-BUNDLE = os.path.join(_HERE, "..", "ca", "bundle.pem")
+ROOTS_DIR = os.path.join(_HERE, "ca", "roots")
+# The rebuilt bundle is a runtime artifact, not package data: site-packages may be
+# read-only, so it goes to the same user data dir as the journals. TBANK_CA_BUNDLE
+# moves both the write and the verify path (client.py reads tls.BUNDLE).
+BUNDLE = os.environ.get(
+    "TBANK_CA_BUNDLE",
+    os.path.join(os.path.expanduser("~/.local/share/tbank-mcp"), "bundle.pem"),
+)
 
 # Roots committed to this repo, pinned by SHA-256 of their DER. A file whose
 # fingerprint does not match is NOT trusted — that is the whole point of shipping
@@ -159,7 +165,7 @@ def load_roots(roots_dir: str | None = None) -> list[str]:
             if got[0] != expected:
                 _log(f"REFUSED {name}: SHA-256 {got[0]} does not match the pin "
                      f"{expected}. This file is NOT trusted. If the bank genuinely "
-                     f"rotated its root, update PINNED_ROOTS in src/tls.py "
+                     f"rotated its root, update PINNED_ROOTS in tbank_mcp/tls.py "
                      f"deliberately.")
                 continue
         else:
@@ -206,7 +212,9 @@ def rebuild_bundle(hosts=None, out: str | None = None) -> str:
     if not roots:
         _log(f"no extra roots loaded from {ROOTS_DIR} — *.t-bank-app.ru will FAIL to "
              f"verify (its root is not in any system store)")
-    os.makedirs(os.path.dirname(out), exist_ok=True)
+    out_dir = os.path.dirname(out)
+    if out_dir:  # a bare filename means "write to cwd" — nothing to create
+        os.makedirs(out_dir, exist_ok=True)
     with open(out, "w", encoding="utf-8") as fh:
         fh.write("\n".join(parts))
     return out
@@ -216,9 +224,9 @@ class RobustTLSAdapter(HTTPAdapter):
     """Retries once on a TLS failure by REBUILDING the bundle from trusted material.
 
     This is not the old self-healing: nothing is learned from the peer. It recovers
-    the one failure that actually happened in practice — `ca/bundle.pem` missing or
-    truncated (it is a generated file, gitignored, and a fresh clone has none; see
-    6f7274d) — and then re-raises with an explanation instead of retrying forever."""
+    the one failure that actually happened in practice — the generated bundle (see
+    BUNDLE) missing or truncated (a fresh install has none; see 6f7274d) — and then
+    re-raises with an explanation instead of retrying forever."""
 
     # Methods that are safe to send twice. A TLS error usually means the handshake
     # failed and nothing was transmitted — but `requests` also raises SSLError on a

@@ -45,8 +45,8 @@ os.environ["TBANK_EVENTS"] = os.path.join(_TMP, "events.jsonl")
 import requests                                                    # noqa: E402
 
 from elicit_fake import accept_ctx                                 # noqa: E402
-from src import server                                             # noqa: E402
-from src.client import (MobileSession, SessionExpired,              # noqa: E402
+from tbank_mcp import server                                       # noqa: E402
+from tbank_mcp.client import (MobileSession, SessionExpired,        # noqa: E402
                         TbankApiError, UnreadableResponse)
 
 failures = []

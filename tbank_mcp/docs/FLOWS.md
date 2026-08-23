@@ -241,7 +241,7 @@ resolve → commission → signed `/v1/pay`, 200 with a `paymentId`).
    The group filter matches the provider's `groupId`, which does not always equal
    the name the groups list prints: «ЖКХ» is `Коммунальные платежи` (63 889
    providers) and «Интернет, ТВ и телефония» drops its comma. A mismatch is HTTP 200
-   with an EMPTY payload, not an error. `GROUP_ALIASES` in `src/client.py` maps the
+   with an EMPTY payload, not an error. `GROUP_ALIASES` in `tbank_mcp/client.py` maps the
    two known cases.
 5. `pay_bill(provider_id, fields, amount, group, from_account)` → REAL MONEY. It
    validates every field against the provider's `regexp` and refuses before sending,

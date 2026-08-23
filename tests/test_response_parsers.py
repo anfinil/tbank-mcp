@@ -31,8 +31,8 @@ os.environ.setdefault("TBANK_TRACE_FILE", os.path.join(_LOGS, "calls.jsonl"))
 os.environ.setdefault("TBANK_EVENTS", os.path.join(_LOGS, "events.jsonl"))
 os.environ.setdefault("TBANK_ATTEMPTS", os.path.join(_LOGS, "attempts.jsonl"))
 
-from src import server  # noqa: E402
-from src.client import MobileSession  # noqa: E402
+from tbank_mcp import server  # noqa: E402
+from tbank_mcp.client import MobileSession  # noqa: E402
 
 failures = []
 
@@ -407,7 +407,7 @@ def test_list_cards_and_afisha_catalog_do_not_cut_names_either():
     """The same unmarked-cut sweep that caught the grocery tools also found
     list_cards (name[:26]) and afisha_catalog (genres joined then cut to 34) —
     same bug, different domains, found by grepping every raw [:N] slice in
-    src/ rather than only the tools one audit dimension happened to name."""
+    tbank_mcp/ rather than only the tools one audit dimension happened to name."""
     cards = [{"id": "1", "ucid": "u1", "account": "123", "availableBalance":
               {"value": 100, "currency": {"name": "RUB"}},
               "name": "Дебетовая карта Black Edition для частых путешествий"}]
@@ -435,7 +435,7 @@ def test_delivery_speed_is_read_from_both_slot_shapes():
     shape into "2026-07-22T08:00:00+03:00-2026-07-22T11:00:00+03:00 min". Nothing
     caught it because grocery_stores() never printed the field at all."""
     import datetime as dt
-    from src.client import delivery_eta
+    from tbank_mcp.client import delivery_eta
 
     tz = dt.timezone(dt.timedelta(hours=3))
     now = dt.datetime(2026, 7, 22, 7, 0, tzinfo=tz)
@@ -763,7 +763,7 @@ def test_a_cart_write_with_the_wrong_key_name_is_refused_not_reported_as_ok():
 
     Refusing happens in the client, before any request: nothing has been posted, so
     it is a clean pre-write refusal."""
-    from src.client import TbankApiError
+    from tbank_mcp.client import TbankApiError
 
     posted = []
 
@@ -814,7 +814,7 @@ def test_a_failed_cart_reread_is_not_reported_as_an_empty_cart():
     made a failed re-read after a CONFIRMED-successful write print "0 позиций"
     — indistinguishable from a genuinely empty cart. A read failure must say
     so, not lie about the cart's contents."""
-    from src.client import TbankApiError
+    from tbank_mcp.client import TbankApiError
 
     class WriteOkReadFails(Stub):
         def grocery_cart_get(self, **kw):
@@ -970,7 +970,7 @@ def test_a_city_is_resolved_or_refused_never_assumed():
     wherever the server spells it differently (its own shelves say Moskva, moscow
     and msk). Both are gone; what replaces them must never quietly answer about
     Moscow when asked about somewhere else."""
-    from src.client import city_id_of, CITY_IDS, TbankApiError
+    from tbank_mcp.client import city_id_of, CITY_IDS, TbankApiError
 
     check(city_id_of("Москва") == "1", "Moscow must resolve to 1")
     check(city_id_of("санкт-петербург") == "2", "case must not matter")
@@ -1010,7 +1010,7 @@ def test_a_cinema_repertoire_reads_as_films_not_as_venues():
     address twenty-four times and announced «24 площадок» for one building.
 
     The request differs too: with a venue there is no city, and none is demanded."""
-    from src.client import TbankApiError
+    from tbank_mcp.client import TbankApiError
 
     venue = {"objectId": "10587", "objectName": "Каро 11 Октябрь",
              "geo": {"address": "Н.Арбат, 24"}}

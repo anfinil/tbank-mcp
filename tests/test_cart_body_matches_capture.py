@@ -38,7 +38,7 @@ os.environ.setdefault("TBANK_ATTEMPTS",
 os.environ.setdefault("TBANK_TRACE_FILE",
                       os.path.join(tempfile.gettempdir(), "tbank-test-calls.jsonl"))
 
-from src.client import MobileSession, TbankApiError  # noqa: E402
+from tbank_mcp.client import MobileSession, TbankApiError  # noqa: E402
 
 CAPTURE = os.environ.get("TBANK_CAPTURE", os.path.expanduser("~/tbank-app/captures.xml"))
 

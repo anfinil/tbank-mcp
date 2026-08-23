@@ -30,8 +30,8 @@ os.environ.setdefault("TBANK_TRACE_FILE", os.path.join(_LOGS, "calls.jsonl"))
 os.environ.setdefault("TBANK_EVENTS", os.path.join(_LOGS, "events.jsonl"))
 os.environ.setdefault("TBANK_ATTEMPTS", os.path.join(_LOGS, "attempts.jsonl"))
 
-from src import server  # noqa: E402
-from src.client import MobileSession, TbankApiError  # noqa: E402
+from tbank_mcp import server  # noqa: E402
+from tbank_mcp.client import MobileSession, TbankApiError  # noqa: E402
 
 failures = []
 

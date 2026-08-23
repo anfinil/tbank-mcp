@@ -37,9 +37,9 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 sys.path.insert(0, HERE)
 
-from src import journal, server                              # noqa: E402
-from src import observability, trace                          # noqa: E402
-from src.client import (MobileSession, TbankApiError,         # noqa: E402
+from tbank_mcp import journal, server                        # noqa: E402
+from tbank_mcp import observability, trace                    # noqa: E402
+from tbank_mcp.client import (MobileSession, TbankApiError,   # noqa: E402
                         PaymentConfirmationRequired)
 from elicit_fake import accept_ctx                            # noqa: E402
 from test_requisites import LegalSession, fixture, run_tool   # noqa: E402

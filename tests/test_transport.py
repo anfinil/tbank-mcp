@@ -22,8 +22,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.client import MobileSession, TbankApiError, _STRICT_XAPP_HOSTS  # noqa: E402
-from src.endpoints import BUILTIN_ENDPOINTS  # noqa: E402
+from tbank_mcp.client import MobileSession, TbankApiError, _STRICT_XAPP_HOSTS  # noqa: E402
+from tbank_mcp.endpoints import BUILTIN_ENDPOINTS  # noqa: E402
 
 failures = []
 
@@ -331,7 +331,7 @@ def test_the_messenger_user_agent_is_built_from_the_session():
     """Tmsg-User-Agent was a frozen template literal announcing iOS 17.5.1 — the
     exact stale version removed from the main User-Agent — with no `device:`
     segment, which every captured request to this host carries."""
-    from src.client import _IOS_VERSION
+    from tbank_mcp.client import _IOS_VERSION
     s = session({"ok": True})
     s.messenger_send("c-1", "привет")
     ua = last(s)["headers"].get("Tmsg-User-Agent") or ""
@@ -349,16 +349,16 @@ def test_the_web_payment_gate_names_its_calling_system():
 
     The previous version compared BUILTIN_ENDPOINTS["payment_gate_pay"]["headers"]
     to a literal — two constants, executing nothing — and the template it pinned has
-    no caller anywhere in src/. The grocery checkout's payment does not go through
+    no caller anywhere in tbank_mcp/. The grocery checkout's payment does not go through
     the requests session at all: it is a fetch inside the checkout page, built in
-    src/checkout.py. So the header the test claimed to guard was absent from the one
+    tbank_mcp/checkout.py. So the header the test claimed to guard was absent from the one
     call that needed it, and the test was green throughout.
 
     captures.xml, POST www.tbank.ru/api/common/pg-api/v1/payment-gate/payments →
     `Pg-Api-System: t-grocery-ib`. The mobile sibling (api.t-bank-app.ru, 4 captured
     calls) says `t-entertainment-mb`."""
     import re
-    from src import checkout as co
+    from tbank_mcp import checkout as co
 
     # The fetch is authored as JS inside checkout(); read the source of the function
     # that issues it, which is what actually reaches the browser.
@@ -378,7 +378,7 @@ def test_the_web_payment_gate_names_its_calling_system():
 
     # The mobile gate DOES go through the requests session, so that half is checked
     # where it is actually applied — on a built request.
-    from src.client import MobileSession
+    from tbank_mcp.client import MobileSession
     s = MobileSession("sid", "rt")
     _, headers, _ = s._signed_parts("payment_gate_pay_mobile", "")
     lower = {k.lower(): v for k, v in headers.items()}
@@ -400,7 +400,7 @@ def test_web_only_query_identifiers_stay_on_the_web_host():
     divergence with no upside."""
     import importlib
 
-    from src import client as C
+    from tbank_mcp import client as C
 
     s = session({"documents": []})
     s.bank_documents()                       # api.t-bank-app.ru, an ordinary read
@@ -446,7 +446,7 @@ def test_the_accept_profile_is_off_by_default_and_correct_when_on():
     own capture says otherwise."""
     import importlib
 
-    from src import client as C
+    from tbank_mcp import client as C
 
     check(C._accept_for("api.t-bank-app.ru") == "application/json",
           "the default must stay application/json until the rollout is driven live")
@@ -491,7 +491,7 @@ def test_a_lean_host_gets_only_what_the_app_sends_it():
     sending a host what the real app does not send is not free, it is a 400 or a
     silent no-op. The flags exist so the opt-out is per endpoint and visible in
     the template, rather than another branch on hostname."""
-    from src.endpoints import BUILTIN_ENDPOINTS
+    from tbank_mcp.endpoints import BUILTIN_ENDPOINTS
     BUILTIN_ENDPOINTS["_lean_probe"] = {
         "method": "GET", "host": "https://webview.t-bank-app.ru",
         "path": "/probe", "params": {"appName": "mobile", "platform": "webview_ios"},
@@ -568,7 +568,7 @@ def test_a_path_override_cannot_walk_out_of_its_endpoint():
     s.trains_cookie, s.trains_cookie_at = "c", 9e18
 
     # The exploit and its cousins — none may reach FakeHTTP. Caught broadly (not
-    # by class identity) because running this file as __main__ can import src twice
+    # by class identity) because running this file as __main__ can import tbank_mcp twice
     # under different module identities; result_code is the stable signal.
     for bad in ("../../../v1/sign_out", "x?scope=all", "x#frag", "%2f..%2fx", "a//b"):
         before = len(s._http.sent)

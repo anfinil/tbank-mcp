@@ -28,8 +28,8 @@ os.environ["TBANK_SESSION"] = os.path.join(_TMP, "session.json")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src import server                                        # noqa: E402
-from src.client import TbankApiError                          # noqa: E402
+from tbank_mcp import server                                  # noqa: E402
+from tbank_mcp.client import TbankApiError                    # noqa: E402
 
 failures = []
 

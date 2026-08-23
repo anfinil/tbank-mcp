@@ -38,6 +38,9 @@ def main():
     # messenger_file writes the attachment it downloads. Same promise as above: a
     # test run must not drop files into the user's chat-files directory.
     env["TBANK_CHAT_FILES"] = os.path.join(tmp, "chat-files")
+    # MobileSession rebuilds the CA bundle on construction; without this the suite
+    # would overwrite the user's real ~/.local/share/tbank-mcp/bundle.pem.
+    env["TBANK_CA_BUNDLE"] = os.path.join(tmp, "bundle.pem")
 
     width = max(len(f) for f in files)
     failed, results = [], []

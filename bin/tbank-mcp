@@ -34,4 +34,4 @@ if ! "$PY" -c "import mcp" >/dev/null 2>&1; then
 fi
 
 cd "$ROOT"
-exec "$PY" -m src.server
+exec "$PY" -m tbank_mcp.server

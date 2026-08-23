@@ -1,6 +1,6 @@
 """Trust must come from pinned roots, never from whoever answers the connection.
 
-src/tls.py used to "self-heal" a TLS failure by running `openssl s_client` against
+tbank_mcp/tls.py used to "self-heal" a TLS failure by running `openssl s_client` against
 the failing host — with no verification — and appending whatever certificates came
 back into the file used as `verify=`. The only gate was a substring match on the
 leaf's Subject DN, a field the peer chooses. A machine-in-the-middle presenting a
@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import requests  # noqa: E402
 
-from src import tls  # noqa: E402
+from tbank_mcp import tls  # noqa: E402
 
 failures = []
 
@@ -253,7 +253,7 @@ def test_a_session_built_before_the_bundle_exists_still_verifies_against_it():
     not carry the Russian Trusted Root, so every bank host failed to verify.
 
     Only a comment guarded this. Executed here with the bundle genuinely absent."""
-    from src import client as C
+    from tbank_mcp import client as C
 
     saved_bundle, saved_latch = tls.BUNDLE, C._CA_BUNDLE
     tmp = tempfile.mkdtemp()
@@ -282,7 +282,7 @@ def test_a_legacy_session_with_an_empty_token_url_is_normalized():
     dataclass default cannot override an explicit empty string passed at
     construction — so refresh() would POST to "". Nothing tested it; grepping
     token_url across tests/ returned nothing at all."""
-    from src.client import DEFAULT_TOKEN_URL, MobileSession
+    from tbank_mcp.client import DEFAULT_TOKEN_URL, MobileSession
 
     s = MobileSession(mobile_sessionid="sid", refresh_token="rt", token_url="")
     check(s.token_url == DEFAULT_TOKEN_URL,
@@ -297,7 +297,7 @@ def test_a_legacy_session_with_an_empty_token_url_is_normalized():
 def test_a_built_wheel_actually_carries_the_pinned_root():
     """Trust that ships only in a git checkout is not shipped.
 
-    `packages = ["src"]` with no package-data built a wheel containing src/*.py and
+    `packages = ["src"]` with no package-data built a wheel containing tbank_mcp/*.py and
     nothing else, while tls.py resolves ROOTS_DIR as `<src>/../ca/roots` — so an
     installed copy had no roots at all, every bank host failed verification, and
     tls.py:264 told the user the connection was being INTERCEPTED. A missing data
@@ -335,16 +335,16 @@ def test_a_built_wheel_actually_carries_the_pinned_root():
         shutil.rmtree(tmp, ignore_errors=True)
 
     for pinned in tls.PINNED_ROOTS:
-        check(f"ca/roots/{pinned}" in names,
+        check(f"tbank_mcp/ca/roots/{pinned}" in names,
               f"the wheel ships no {pinned} — an install would fail every bank host "
               f"and blame interception. Wheel has: {sorted(names)[:8]}")
-    check("docs/FLOWS.md" in names,
-          "the wheel ships no docs/FLOWS.md — flows(), the documented discovery entry "
+    check("tbank_mcp/docs/FLOWS.md" in names,
+          "the wheel ships no tbank_mcp/docs/FLOWS.md — flows(), the documented discovery entry "
           "point, answers 'not found' on an installed copy")
-    check(any(n.startswith("src/") and n.endswith(".py") for n in names),
+    check(any(n.startswith("tbank_mcp/") and n.endswith(".py") for n in names),
           "the wheel ships no python at all")
     print(f"  packaging: the wheel carries {len(tls.PINNED_ROOTS)} pinned root(s) "
-          f"and FLOWS.md, not just src/*.py")
+          f"and FLOWS.md, not just tbank_mcp/*.py")
 
 
 def test_a_nontext_pem_is_refused_not_a_crash():

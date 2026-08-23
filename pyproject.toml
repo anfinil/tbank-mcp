@@ -1,9 +1,27 @@
 [project]
 name = "tbank-mcp"
-version = "0.1.2"
+version = "0.2.0"
 description = "MCP server for the T-Bank (Т-Банк) mobile personal-banking API (capture-driven, headless, pinned-root TLS)."
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "icyberdeveloper" }]
+keywords = [
+  "mcp", "mcp-server", "model-context-protocol",
+  "tbank", "t-bank", "tinkoff", "banking", "fintech",
+  "claude", "ai-agents", "llm",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Office/Business :: Financial",
+]
 dependencies = [
   # <2 is load-bearing, not caution: mcp 2.0.0 dropped `mcp.server.fastmcp`, and
   # server.py's first import is `from mcp.server.fastmcp import FastMCP`. A bare
@@ -19,26 +37,28 @@ dependencies = [
   "pydantic>=2",
 ]
 
+[project.urls]
+Homepage = "https://github.com/icyberdeveloper/tbank-mcp"
+Repository = "https://github.com/icyberdeveloper/tbank-mcp"
+Issues = "https://github.com/icyberdeveloper/tbank-mcp/issues"
+
 [project.scripts]
-tbank-mcp = "src.server:main"
+tbank-mcp = "tbank_mcp.server:main"
 
 [build-system]
-requires = ["setuptools>=68"]
+# setuptools>=77.0.3 is the first release that accepts the PEP 639 SPDX
+# `license` string + `license-files` used above.
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-# `ca.roots` and `docs` are DATA, not importable code — they are listed as packages
-# because that is the only way setuptools puts a file in a wheel at a path OUTSIDE
-# the import package, and both are resolved as `<src>/../…` at runtime
-# (src/tls.py ROOTS_DIR, src/server.py _FLOWS_PATH). With `packages = ["src"]` alone
-# a wheel carried src/*.py and nothing else: every bank host then failed certificate
-# verification and src/tls.py reported it as "the connection is being intercepted",
-# which is a missing data file misdiagnosed as an attack. flows() answered
-# "FLOWS.md not found" for the same reason.
-# Only `pip install -e` (what bin/tbank-mcp does) hid this; the console script
-# declared above is the path that did not work.
-packages = ["src", "ca.roots", "docs"]
+packages = ["tbank_mcp"]
 
 [tool.setuptools.package-data]
-"ca.roots" = ["*.pem"]
-"docs" = ["*.md"]
+# ca/roots and docs are runtime DATA living INSIDE the package so that tls.py's
+# ROOTS_DIR (<pkg>/ca/roots) and server.py's _FLOWS_PATH (<pkg>/docs/FLOWS.md)
+# resolve identically in an editable checkout and in a wheel install. A wheel
+# without them fails certificate verification on every bank host (misdiagnosed
+# as "the connection is being intercepted") and flows() answers "not found" —
+# tests/test_tls_trust.py builds a wheel and asserts both files are in it.
+tbank_mcp = ["ca/roots/*.pem", "docs/*.md"]

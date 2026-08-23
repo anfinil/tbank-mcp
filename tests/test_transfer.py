@@ -50,8 +50,8 @@ os.environ["TBANK_EVENTS"] = os.path.join(_TMP, "events.jsonl")
 # without this their rows (payee, amounts) land in the user's live calls.jsonl.
 os.environ["TBANK_TRACE_FILE"] = os.path.join(_TMP, "calls.jsonl")
 
-from src import server  # noqa: E402
-from src.client import MobileSession  # noqa: E402
+from tbank_mcp import server  # noqa: E402
+from tbank_mcp.client import MobileSession  # noqa: E402
 
 failures = []
 
@@ -517,7 +517,7 @@ def test_filter_sections_refuse_to_pretend():
     """get_data("providers") hits /providers/compatible/filter, which the app calls
     with ?ids=fns-rf,… — with no ids it is a filter with no filter and returns
     nothing. Silently answering "empty" taught the agent the user has no providers."""
-    from src.client import TbankApiError
+    from tbank_mcp.client import TbankApiError
 
     class Sec(MobileSession):
         def __init__(self):
@@ -593,7 +593,7 @@ def test_a_refusal_is_not_reported_as_a_possible_charge():
     """Saying "the outcome is unknown" costs the user: it claims money may have moved
     AND blocks the next attempt. A client-side refusal (unresolved recipient, several
     SBP banks, bad phone) and a bank rejection are neither."""
-    from src.client import TbankApiError
+    from tbank_mcp.client import TbankApiError
     open(os.environ["TBANK_ATTEMPTS"], "w").close()
     saved = server._require
 
@@ -640,7 +640,7 @@ def test_transfer_inner_is_refused_until_captured():
     to_account}) but no captured /v1/pay exists to check it against — unlike
     p2p-anybank, which this whole file's fixture is verified against. Refused,
     not sent, until that capture exists."""
-    from src.client import TbankApiError
+    from tbank_mcp.client import TbankApiError
     s = CaptureSession()
     try:
         s.transfer(1000, "40817810000000000000", provider="transfer-inner")
@@ -748,7 +748,7 @@ def test_the_recipients_own_tbank_account_is_found():
     # is what must equal the app's — including the two flags the internal call does
     # NOT carry. Sending withTinkoff on it would be the same class of invention as
     # believing withTinkoff on the external one covers T-Bank.
-    from src.endpoints import BUILTIN_ENDPOINTS
+    from tbank_mcp.endpoints import BUILTIN_ENDPOINTS
     template = set(BUILTIN_ENDPOINTS["get_requisites"]["params"])
     for asked, source in zip(s.asked, ("internal", "external")):
         check(set(asked) == set(fx[source]["query_keys"]) - template,
@@ -856,7 +856,7 @@ def test_a_recipient_with_several_accounts_is_never_picked_silently():
     """Three candidates and no default: the tool must refuse and show all three,
     T-Bank among them — picking one would send the money to the wrong account of the
     right person, invisibly."""
-    from src.client import TbankApiError
+    from tbank_mcp.client import TbankApiError
 
     fx = recipient_fixture()
     s = ResolvingSession()
@@ -959,7 +959,7 @@ def test_a_bill_payment_is_refused_before_it_is_sent_when_the_fields_are_wrong()
     wrong, or the agent will just try again with the same value."""
     import os
 
-    from src import server
+    from tbank_mcp import server
 
     saved = server._require
     try:
@@ -1022,7 +1022,7 @@ def test_pricing_a_bill_runs_the_real_commission_contract():
     BillSession stub swallowed the string, so the suite stayed green. Here the
     real method runs and only the network hop is canned: a type regression on
     this argument fails this test instead of the next live payment."""
-    from src import server
+    from tbank_mcp import server
 
     saved = server._require
     try:
@@ -1057,7 +1057,7 @@ def test_a_bill_payment_respects_the_provider_limits():
     it costs no attempt and no journal entry."""
     import os
 
-    from src import server
+    from tbank_mcp import server
 
     saved = server._require
     try:
@@ -1084,7 +1084,7 @@ def test_the_app_version_is_frozen_to_the_signed_capture():
     capture the byte-exact reproduction below is pinned to). Bumping the constant
     without a fresh signed-payment capture desyncs the HMAC; this fails FIRST, with
     a message that says why, instead of leaving a cryptic signature mismatch."""
-    from src.endpoints import APP_VERSION
+    from tbank_mcp.endpoints import APP_VERSION
     with open(FIXTURE, encoding="utf-8") as fh:
         captured = (json.load(fh).get("query_static") or {}).get("appVersion")
     check(APP_VERSION == captured,

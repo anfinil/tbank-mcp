@@ -48,9 +48,9 @@ sys.path.insert(0, HERE)
 import requests  # noqa: E402
 
 from elicit_fake import accept_ctx  # noqa: E402
-from src import server  # noqa: E402
-from src.client import MobileSession  # noqa: E402
-from src.observability import redact_text  # noqa: E402
+from tbank_mcp import server  # noqa: E402
+from tbank_mcp.client import MobileSession  # noqa: E402
+from tbank_mcp.observability import redact_text  # noqa: E402
 
 failures = []
 
@@ -165,16 +165,16 @@ def test_err_redacts_the_sessionid():
     check("ConnectionError" in out, f"the error TYPE must survive redaction: {out}")
 
     # The blob pattern alone cannot catch it — proving the by-name scrub is required.
-    from src.observability import _RE_BLOB
+    from tbank_mcp.observability import _RE_BLOB
     check(_RE_BLOB.sub("<blob>", sid) == sid,
           "sessionid is now blob-matchable; this test's premise needs revisiting")
 
     # An API error carrying a URL must be scrubbed on its branch too.
-    from src.client import TbankApiError
+    from tbank_mcp.client import TbankApiError
     api = server._err(TbankApiError("INTERNAL_ERROR", f"failed calling {url}"))
     check(sid not in api, f"sessionid leaked through the TbankApiError branch: {api}")
 
-    from src.client import SessionExpired
+    from tbank_mcp.client import SessionExpired
     exp = server._err(SessionExpired("SESSION_IS_ABSENT", f"at {url}"))
     check(sid not in exp, f"sessionid leaked through the SessionExpired branch: {exp}")
     check("refresh_session" in exp, "the expiry branch must still name the recovery tool")
@@ -278,7 +278,7 @@ def test_in_page_fetch_gives_up_instead_of_hanging():
     import json as _json
     import subprocess
     import tempfile
-    from src.checkout import _js
+    from tbank_mcp.checkout import _js
 
     node = node_bin()
     if not node:
@@ -415,7 +415,7 @@ def test_the_cart_readiness_poll_uses_a_real_clock():
     probe is a real in-page fetch capped at FETCH_TIMEOUT_MS (30 s), so a page that
     hung twice blew a "20 second" budget past a minute while the caller sat
     mid-checkout. Executed here with a probe that is genuinely slow."""
-    from src.checkout import _poll_until_ready
+    from tbank_mcp.checkout import _poll_until_ready
 
     # A probe slower than the whole budget: one call and the deadline is gone.
     calls = []
@@ -501,10 +501,10 @@ def run_checkout(routes, **kw):
         sso_login_cookie = "SSO_SESSION=SECRET; SSO_SESSION_STATE=st; api_sso_id=A"
 
         def _wide_cookie(self):
-            from src.client import wide_cookies
+            from tbank_mcp.client import wide_cookies
             return wide_cookies(self.cookie_str)
 
-    from src import checkout as co
+    from tbank_mcp import checkout as co
     out = io.StringIO()
     result, exc = None, None
     try:
@@ -577,7 +577,7 @@ def test_lost_payment_answer_is_reconciled_not_declared_unknown():
     check("grocery/order?" in page.log, f"the order was never read back: {page.log}")
 
     # Genuinely unpaid → still UNKNOWN, and the message must carry what was observed.
-    from src.checkout import CheckoutUnknown
+    from tbank_mcp.checkout import CheckoutUnknown
     lookup_new = {"status": 200, "body": {"payload": {"order": {"status": "NEW"}}}}
     res2, exc2, _, _ = run_checkout(routes(timed_out, order_lookup=lookup_new))
     check(isinstance(exc2, CheckoutUnknown),
@@ -606,7 +606,7 @@ def test_the_sum_the_user_approved_is_the_sum_that_gets_paid():
     the same guard on the other money path, and it must refuse in the window where
     refusing is still free — before order/create, so the attempt stays a retryable
     CheckoutError rather than the UNKNOWN that blocks the cart afterwards."""
-    from src.checkout import CheckoutError
+    from tbank_mcp.checkout import CheckoutError
     paid = {"status": 200, "body": {"paymentId": "PAY-1", "stage": {"status": "SUCCESS"}}}
 
     # Approving the pre-delivery number does NOT authorise the post-delivery one.
@@ -697,7 +697,7 @@ def test_a_store_that_blinks_does_not_cost_the_user_an_attempt():
     refused — nothing has been posted, and the same call seconds later routinely
     works. Three consecutive user-visible checkouts died on one such blip because the
     first refusal ended the attempt."""
-    import src.checkout as co
+    import tbank_mcp.checkout as co
     paid = {"status": 200, "body": {"paymentId": "PAY-1", "stage": {"status": "SUCCESS"}}}
     r = routes(paid)
     r["deliveries"] = [DELIV_STORE_DOWN, DELIV_OK]
@@ -719,8 +719,8 @@ def test_a_store_that_stays_down_is_named_as_the_cause():
     """`deliveries failed (http=200, code=211)` said nothing about WHOSE fault it was
     or whether retrying could ever help, so the agent had to reconstruct that from
     diagnostics() afterwards. The message must carry the verdict itself."""
-    from src.checkout import CheckoutError
-    import src.checkout as co
+    from tbank_mcp.checkout import CheckoutError
+    import tbank_mcp.checkout as co
     paid = {"status": 200, "body": {"paymentId": "PAY-1", "stage": {"status": "SUCCESS"}}}
     r = routes(paid)
     r["deliveries"] = [DELIV_STORE_DOWN]            # the same answer every time
@@ -749,7 +749,7 @@ def test_a_delivery_request_that_is_simply_wrong_is_not_retried():
     """A 4xx is the checkout's own fault (wrong store context, dead session) and will
     answer the same way forever. Retrying it only makes the user wait three times as
     long for the same failure."""
-    from src.checkout import CheckoutError
+    from tbank_mcp.checkout import CheckoutError
     paid = {"status": 200, "body": {"paymentId": "PAY-1", "stage": {"status": "SUCCESS"}}}
     r = routes(paid)
     r["deliveries"] = [DELIV_BAD_REQUEST]
@@ -767,8 +767,8 @@ def test_a_delivery_call_that_never_landed_is_not_success():
     old check — `status >= 400 or an error message` — let that through as a healthy
     delivery. The slots were then never initialised and the checkout went on to create
     an order against a sum nothing had confirmed."""
-    from src.checkout import CheckoutError
-    import src.checkout as co
+    from tbank_mcp.checkout import CheckoutError
+    import tbank_mcp.checkout as co
     paid = {"status": 200, "body": {"paymentId": "PAY-1", "stage": {"status": "SUCCESS"}}}
     r = routes(paid)
     r["deliveries"] = [{"status": 0, "body": {}, "timedOut": True, "error": "AbortError"}]
@@ -806,8 +806,8 @@ def test_a_quote_is_not_an_attempt():
     already exist" hold into a silent second order. A quote posts nothing, so it
     records nothing; and a cart that is already blocked does not get previewed
     either, because the answer the agent needs there is reconciliation, not a price."""
-    from src import journal
-    from src import server as S
+    from tbank_mcp import journal
+    from tbank_mcp import server as S
 
     goods = [{"id": "g1"}, {"id": "g2"}]
     quote = {"dry_run": True, "status": "QUOTE", "sum": 1600.2,
@@ -857,7 +857,7 @@ def test_the_checkout_tool_runs_playwright_off_the_event_loop():
     inside the asyncio loop" when called in FastMCP's loop, which is where sync
     tools run — so grocery_checkout is an async tool that offloads to a worker
     thread. The fix was protected by a docstring only: every checkout test drives
-    src.checkout.checkout() directly and never touches the tool, so making it sync
+    tbank_mcp.checkout.checkout() directly and never touches the tool, so making it sync
     again would break every real checkout with a green suite.
 
     Asserted by running the tool inside a real event loop and recording the thread
@@ -868,7 +868,7 @@ def test_the_checkout_tool_runs_playwright_off_the_event_loop():
     import asyncio
     import threading
 
-    from src import server as S
+    from tbank_mcp import server as S
 
     loop_thread = None
     quote_thread, body_thread, body_sums = [], [], []
@@ -929,8 +929,8 @@ def test_payment_gate_problem_json_reaches_the_user():
     and the agent went hunting for session bugs while the account was simply short
     of money. The message must carry title/detail, and the diagnostics event must
     carry the problem `type` as app_code instead of an empty string."""
-    from src import observability as obs
-    from src.checkout import CheckoutUnknown
+    from tbank_mcp import observability as obs
+    from tbank_mcp.checkout import CheckoutUnknown
 
     problem = {"status": 422, "body": {
         "type": "payment-gate/balance-otb-is-spent",
@@ -964,7 +964,7 @@ def test_payment_gate_problem_json_reaches_the_user():
 def test_cart_readiness_distinguishes_not_up_from_empty():
     """The poll used to wait for a NON-EMPTY cart, so a genuinely empty cart burned
     the full deadline and then reported the wrong cause."""
-    from src.checkout import CheckoutError
+    from tbank_mcp.checkout import CheckoutError
 
     # Never comes up: must fail fast-ish and promise it is safe to retry.
     # The deadline is passed in rather than left at the production 20 s, which this
@@ -1001,7 +1001,7 @@ def test_deliveries_error_envelope_is_not_missed():
     deliveries check only looked at HTTP>=400 and a top-level errorMessage, so
     this envelope shape passed through unnoticed and the checkout went on to
     pay for an order whose delivery was never actually set up."""
-    from src.checkout import CheckoutError
+    from tbank_mcp.checkout import CheckoutError
 
     deliv_error = {"status": 200, "body": {
         "status": "Error", "payload": {"code": "NO_SLOTS", "message": "Нет слотов доставки"}}}
@@ -1022,7 +1022,7 @@ def test_messenger_ids_are_validated_before_they_reach_a_url():
     unencoded into an f-string request path. A value containing "/", "..", "?", "#"
     or whitespace must be rejected before any network call is even attempted, not
     sent to the bank as-is."""
-    from src.client import TbankApiError
+    from tbank_mcp.client import TbankApiError
 
     s = MobileSession.__new__(MobileSession)
     calls = []

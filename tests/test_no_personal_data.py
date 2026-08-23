@@ -151,7 +151,7 @@ ALLOWED = {
 
 # Binary and vendored content: certificate roots are public, and their base64
 # genuinely contains long digit runs.
-SKIP_PREFIXES = ("ca/roots/",)
+SKIP_PREFIXES = ("tbank_mcp/ca/roots/",)
 SKIP_SUFFIXES = (".png", ".jpg", ".pdf", ".pem", ".crt", ".cer", ".ico")
 
 

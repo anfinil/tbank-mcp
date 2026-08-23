@@ -27,14 +27,14 @@ import getpass
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from src.client import TbankApiError
-    from src import server as srv
+    from tbank_mcp.client import TbankApiError
+    from tbank_mcp import server as srv
 except ModuleNotFoundError as _e:
     # Скрипт запускают руками, и первым делом — системным python3, потому что
     # так набирается быстрее. Зависимости живут в .venv репозитория, и голый
     # ModuleNotFoundError: No module named 'mcp' не подсказывает вообще ничего:
     # человек идёт ставить mcp глобально вместо того, чтобы взять готовое
-    # окружение. Тут нужен весь src.server, потому что путь к файлу сессии и
+    # окружение. Тут нужен весь tbank_mcp.server, потому что путь к файлу сессии и
     # запись на диск определены в нём — общие с MCP, чтобы не разъезжались.
     _VENV = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "bin", "python")
     print(f"Не хватает зависимости: {_e.name}")

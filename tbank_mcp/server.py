@@ -4,7 +4,7 @@ Low-level API calls are encapsulated in high-level tools; get_data(section)
 covers 60+ read endpoints in one tool. The tool docstrings ARE the agent-facing
 reference — there is no separate tool list to keep in sync.
 
-Run: python -m src.server
+Run: python -m tbank_mcp.server
 """
 from __future__ import annotations
 
@@ -2121,7 +2121,7 @@ def debug_report(runs: int = 0, top: int = 6) -> str:
     в ответ и где застряли. Для отладки самого MCP, не для банковских задач.
 
     Пишется автоматически при каждом вызове любого тула (выключается TBANK_TRACE=0).
-    Секретов и свободного текста в трассе нет — см. src/trace.py.
+    Секретов и свободного текста в трассе нет — см. tbank_mcp/trace.py.
 
     runs — сколько последних запусков сервера взять (0 = все, что есть в файле).
     top — сколько строк показывать в каждом разделе.
@@ -7312,7 +7312,7 @@ def payment_receipt(payment_id: str, save_to: str = "", overwrite: bool = False)
 
 # ── UTILITY ─────────────────────────────────────────────────
 
-_FLOWS_PATH = os.path.join(os.path.dirname(__file__), "..", "docs", "FLOWS.md")
+_FLOWS_PATH = os.path.join(os.path.dirname(__file__), "docs", "FLOWS.md")
 
 # Words an agent is likely to use, per section. Matched against the query in
 # addition to the section title, so a Russian request finds an English heading.

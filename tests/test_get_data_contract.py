@@ -10,7 +10,7 @@ answer:
    `get_data("order_cancel")` cancelled an order. The tool is annotated
    readOnlyHint=True and idempotentHint=True — a host may run it without asking.
 2. `arg` was honoured for exactly three sections and silently dropped for the rest,
-   while docs/FLOWS §7 told the agent to call three FILTER endpoints that need one.
+   while tbank_mcp/docs/FLOWS §7 told the agent to call three FILTER endpoints that need one.
    `get_data("full_debt_amount", account)` therefore asked the bank about the debt
    of no account, and the empty answer read as «долгов нет».
 3. `subscription_bills` selects by `subscriptionIds` and was sent none, so the one
@@ -31,8 +31,8 @@ os.environ["TBANK_TRACE_FILE"] = os.path.join(_TMP, "calls.jsonl")
 os.environ["TBANK_ATTEMPTS"] = os.path.join(_TMP, "attempts.jsonl")
 os.environ["TBANK_EVENTS"] = os.path.join(_TMP, "events.jsonl")
 
-from src.client import MobileSession, TbankApiError            # noqa: E402
-from src.endpoints import BUILTIN_ENDPOINTS                     # noqa: E402
+from tbank_mcp.client import MobileSession, TbankApiError      # noqa: E402
+from tbank_mcp.endpoints import BUILTIN_ENDPOINTS               # noqa: E402
 
 failures = []
 

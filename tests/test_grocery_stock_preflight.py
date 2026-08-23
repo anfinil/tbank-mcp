@@ -30,10 +30,10 @@ os.environ["TBANK_ATTEMPTS"] = os.path.join(_TMP, "attempts.jsonl")
 os.environ["TBANK_EVENTS"] = os.path.join(_TMP, "events.jsonl")
 os.environ["TBANK_TRACE_FILE"] = os.path.join(_TMP, "calls.jsonl")
 
-from src import client as client_mod                            # noqa: E402
-from src import server                                          # noqa: E402
-from src.checkout import CheckoutError                          # noqa: E402
-from src.client import MobileSession, TbankApiError             # noqa: E402
+from tbank_mcp import client as client_mod                      # noqa: E402
+from tbank_mcp import server                                    # noqa: E402
+from tbank_mcp.checkout import CheckoutError                    # noqa: E402
+from tbank_mcp.client import MobileSession, TbankApiError       # noqa: E402
 
 failures = []
 
@@ -328,7 +328,7 @@ class _FakePlaywright:
 
 
 def run_web_checkout(cart_goods):
-    """Drive the REAL src.checkout.checkout() against a fake browser whose web cart carries
+    """Drive the REAL tbank_mcp.checkout.checkout() against a fake browser whose web cart carries
     `cart_goods`. Returns (result, exc, page)."""
     import contextlib
     import io
@@ -347,10 +347,10 @@ def run_web_checkout(cart_goods):
         sso_login_cookie = "api_sso_id=A"
 
         def _wide_cookie(self):
-            from src.client import wide_cookies
+            from tbank_mcp.client import wide_cookies
             return wide_cookies(self.cookie_str)
 
-    from src import checkout as co
+    from tbank_mcp import checkout as co
     result, exc = None, None
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):

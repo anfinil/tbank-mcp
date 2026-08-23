@@ -87,7 +87,7 @@ _TOKEN = re.compile(r"\w+", re.UNICODE)
 _WORDS_ONLY = re.compile(r"^\w+$", re.UNICODE)
 # This file quotes «Максим» and «Владимир» in the comments explaining why they
 # are false positives, and would otherwise report itself, forever.
-SKIP_PREFIXES = ("ca/roots/", "tests/fixtures/audit_captures.py")
+SKIP_PREFIXES = ("tbank_mcp/ca/roots/", "tests/fixtures/audit_captures.py")
 SKIP_SUFFIXES = (".png", ".jpg", ".pdf", ".pem", ".crt", ".cer", ".ico")
 
 

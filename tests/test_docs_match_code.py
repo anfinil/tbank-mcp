@@ -2,11 +2,11 @@
 
 Every previous audit found the same shape of bug: a tool is renamed or deleted, and
 the documents that teach an agent how to call it keep the old name. It is invisible
-because nothing executes a document. `grocery_pick_lightest` survived in docs/FLOWS.md
+because nothing executes a document. `grocery_pick_lightest` survived in tbank_mcp/docs/FLOWS.md
 for a whole release after it was removed from server.py; an agent following that
 line calls a tool that does not exist and has no way to recover.
 
-The same rot hit the `flows` tool itself: it returned docs/FLOWS.md[:6000] while the file
+The same rot hit the `flows` tool itself: it returned tbank_mcp/docs/FLOWS.md[:6000] while the file
 had grown to ~12 000 chars, so every flow from the messenger down — cards, orders,
 nutrition, tickets — was silently unreachable through the one tool meant to serve it.
 Truncation is invisible from the inside, so it is pinned here by section, not by
@@ -32,7 +32,7 @@ os.environ.setdefault("TBANK_TRACE_FILE", os.path.join(_LOGS, "calls.jsonl"))
 os.environ.setdefault("TBANK_EVENTS", os.path.join(_LOGS, "events.jsonl"))
 os.environ.setdefault("TBANK_ATTEMPTS", os.path.join(_LOGS, "attempts.jsonl"))
 
-from src import server  # noqa: E402
+from tbank_mcp import server  # noqa: E402
 
 failures = []
 
@@ -61,7 +61,7 @@ def tool_names():
 
 
 # Names the documents mention on purpose while stating they are NOT tools: internal
-# client methods and API steps that run inside a tool. docs/FLOWS.md calls this out in its
+# client methods and API steps that run inside a tool. tbank_mcp/docs/FLOWS.md calls this out in its
 # preamble; keeping the list here means adding a new internal reference is a conscious
 # act, not an accident.
 NOT_TOOLS = {
@@ -73,7 +73,7 @@ NOT_TOOLS = {
 
 # AGENTS.md was deleted (nothing read it); doc_files() skips missing entries, so the
 # name sat here harmlessly until someone recreated the file by accident.
-DOCS = ["docs/FLOWS.md", "README.md", "docs/MOBILE_CHECKOUT.md"]
+DOCS = ["tbank_mcp/docs/FLOWS.md", "README.md", "docs/MOBILE_CHECKOUT.md"]
 
 
 def doc_files():
@@ -314,7 +314,7 @@ def test_the_documented_counts_match_the_registry():
     live = len(tool_names())
 
     readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
-    flows = open(os.path.join(ROOT, "docs", "FLOWS.md"), encoding="utf-8").read()
+    flows = open(os.path.join(ROOT, "tbank_mcp", "docs", "FLOWS.md"), encoding="utf-8").read()
 
     claims = [
         ("README **N tools**", readme, r"\*\*(\d+) tools\*\*", live),
@@ -414,8 +414,8 @@ def test_disproven_claims_do_not_come_back():
     twice and the success line overstating its coverage by 48%. Deduped, and the
     count now reports distinct files."""
     scanned = set(doc_files())
-    scanned |= {os.path.join(ROOT, "src", f)
-                for f in os.listdir(os.path.join(ROOT, "src")) if f.endswith(".py")}
+    scanned |= {os.path.join(ROOT, "tbank_mcp", f)
+                for f in os.listdir(os.path.join(ROOT, "tbank_mcp")) if f.endswith(".py")}
     scanned = sorted(scanned)
     for pattern, why in RETIRED_CLAIMS:
         hits = [os.path.relpath(p, ROOT) for p in scanned
@@ -426,10 +426,10 @@ def test_disproven_claims_do_not_come_back():
     # or a doc that stopped being scanned would silently narrow it.
     import glob
     for required in (glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md"))
-                     + [os.path.join(ROOT, "docs", "FLOWS.md"),
+                     + [os.path.join(ROOT, "tbank_mcp", "docs", "FLOWS.md"),
                         os.path.join(ROOT, "README.md"),
-                        os.path.join(ROOT, "src", "client.py"),
-                        os.path.join(ROOT, "src", "server.py")]):
+                        os.path.join(ROOT, "tbank_mcp", "client.py"),
+                        os.path.join(ROOT, "tbank_mcp", "server.py")]):
         check(required in scanned,
               f"{os.path.relpath(required, ROOT)} is no longer scanned for retired "
               f"claims — the exemption this test has is for full coverage")
@@ -462,7 +462,7 @@ def test_a_renamed_skill_leaves_no_live_reference():
               f"a retired skill directory is back: skills/{name}")
     # (b) no SKILL.md, router or source file references it as if it were live.
     scanned = glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md"))
-    scanned += glob.glob(os.path.join(ROOT, "src", "*.py"))
+    scanned += glob.glob(os.path.join(ROOT, "tbank_mcp", "*.py"))
     for f in scanned:
         text = open(f, encoding="utf-8").read()
         for name in RETIRED_SKILL_NAMES:
@@ -550,7 +550,7 @@ def test_flows_serves_every_section():
     which silently cut everything from section 5 onward."""
     sections = server._flow_sections()
     check(len(sections) >= 10,
-          f"docs/FLOWS.md parsed into only {len(sections)} sections")
+          f"tbank_mcp/docs/FLOWS.md parsed into only {len(sections)} sections")
 
     toc = server.flows()
     for title, _ in sections:
@@ -569,7 +569,7 @@ def test_flows_serves_every_section():
     by_title = {t: b for t, b in sections}
     for fragment, query in probes.items():
         hit = next((t for t in by_title if fragment.lower() in t.lower()), None)
-        check(hit is not None, f"docs/FLOWS.md has no section matching {fragment!r}")
+        check(hit is not None, f"tbank_mcp/docs/FLOWS.md has no section matching {fragment!r}")
         if hit is None:
             continue
         out = server.flows(query)

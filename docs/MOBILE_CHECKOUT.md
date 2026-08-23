@@ -6,7 +6,7 @@ This doc captures the alternative **native mobile checkout** found in `captures.
 as a future migration to **drop the Playwright/chromium dependency**.
 
 ## Why
-- `grocery_checkout` currently drives a headless chromium (`src/checkout.py`:
+- `grocery_checkout` currently drives a headless chromium (`tbank_mcp/checkout.py`:
   `sync_playwright` → `chromium.launch`). That requires `python -m playwright install
   chromium` and adds a heavy browser dependency + a page-load wait.
 - The real T-Bank app places grocery orders via **native mobile JSON endpoints**
@@ -64,7 +64,7 @@ The capture **ends** (last shopping call) right after `process-order` + `bnpl` +
    `shopping_get_customer_information` (+ the confirm/pay call once captured).
 2. Switch `grocery_search`/`grocery_goods` to return `skuId` + `pointOfSaleId`.
 3. Rebuild `grocery_add_to_cart` / `grocery_cart` / `grocery_checkout` on the mobile model.
-4. **Delete `src/checkout.py` (Playwright) + drop the `playwright` dependency** from
+4. **Delete `tbank_mcp/checkout.py` (Playwright) + drop the `playwright` dependency** from
    `plugin.json` / `pyproject.toml` / README install step.
 5. Keep the attempt journal + observability (Phase 3/4) — they're flow-agnostic.
 

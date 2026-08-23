@@ -31,8 +31,8 @@ os.environ["TBANK_EVENTS"] = os.path.join(_TMP, "events.jsonl")
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
 from elicit_fake import accept_ctx, decline_ctx  # noqa: E402
-from src import server, trace  # noqa: E402
-from src.client import MobileSession, TbankApiError  # noqa: E402
+from tbank_mcp import server, trace  # noqa: E402
+from tbank_mcp.client import MobileSession, TbankApiError  # noqa: E402
 
 failures = []
 
@@ -683,8 +683,8 @@ def test_the_journal_and_the_event_log_redact_too():
 
     They differ from the trace in a way that matters: they hand the WHOLE dict to
     _redact_value, so the key blocklist already fires for them. This pins that."""
-    from src import journal
-    from src import observability as obs
+    from tbank_mcp import journal
+    from tbank_mcp import observability as obs
 
     jpath = os.path.join(_TMP, "j-redact.jsonl")
     epath = os.path.join(_TMP, "e-redact.jsonl")
@@ -718,8 +718,8 @@ def test_the_log_files_are_owner_only_even_if_they_already_existed():
     file is CREATED and is masked by umask, so a log that already exists at 0644 —
     from an older version, a restore, a careless editor — would keep leaking to every
     account on the machine while the code looks correct."""
-    from src import journal
-    from src import observability as obs
+    from tbank_mcp import journal
+    from tbank_mcp import observability as obs
 
     cases = []
     jpath = os.path.join(_TMP, "j-perm.jsonl")

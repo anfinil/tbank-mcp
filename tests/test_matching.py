@@ -22,8 +22,8 @@ os.environ["TBANK_TRACE_FILE"] = os.path.join(_TMP, "calls.jsonl")
 os.environ["TBANK_ATTEMPTS"] = os.path.join(_TMP, "attempts.jsonl")
 os.environ["TBANK_EVENTS"] = os.path.join(_TMP, "events.jsonl")
 
-from src import server                                            # noqa: E402
-from src.client import MobileSession                              # noqa: E402
+from tbank_mcp import server                                      # noqa: E402
+from tbank_mcp.client import MobileSession                        # noqa: E402
 
 failures = []
 

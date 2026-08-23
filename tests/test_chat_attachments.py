@@ -24,7 +24,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Point the tool's default save directory at a temp dir BEFORE src.server reads it.
+# Point the tool's default save directory at a temp dir BEFORE tbank_mcp.server reads it.
 _TMP = tempfile.mkdtemp(prefix="tbank-attach-")
 os.environ["TBANK_CHAT_FILES"] = os.path.join(_TMP, "chat-files")
 
@@ -37,8 +37,8 @@ os.environ.setdefault("TBANK_TRACE_FILE", os.path.join(_LOGS, "calls.jsonl"))
 os.environ.setdefault("TBANK_EVENTS", os.path.join(_LOGS, "events.jsonl"))
 os.environ.setdefault("TBANK_ATTEMPTS", os.path.join(_LOGS, "attempts.jsonl"))
 
-from src import server  # noqa: E402
-from src.client import MobileSession, TbankApiError, SessionExpired  # noqa: E402
+from tbank_mcp import server  # noqa: E402
+from tbank_mcp.client import MobileSession, TbankApiError, SessionExpired  # noqa: E402
 
 failures = []
 
@@ -280,7 +280,7 @@ def test_the_name_comes_from_the_response_not_from_the_caller():
     round trip through the model for a value the server states itself — and states
     twice. Verified against the live headers: percent-encoded in
     Content-Disposition, and exact bytes in x-amz-meta-filename-base64."""
-    from src.client import _response_filename as fn
+    from tbank_mcp.client import _response_filename as fn
     live = {"content-disposition":
             'attachment; filename="Otchet_%D0%BE%D1%82%D1%87%D1%91%D1%82_400000000001.xlsx"',
             "x-amz-meta-filename-base64": "0JLRi9C/0LjRgdC60LAueGxzeA=="}
@@ -315,7 +315,7 @@ def test_the_endpoint_template_matches_what_the_host_answers():
     authorised by the tmsgSessionID cookie alone, and it takes none of the base
     query params (the app sends none there — sessionid is the HMAC key for /v1/pay
     and has no business in this URL)."""
-    from src.endpoints import BUILTIN_ENDPOINTS
+    from tbank_mcp.endpoints import BUILTIN_ENDPOINTS
     tpl = BUILTIN_ENDPOINTS.get("messenger_file") or {}
     check(tpl.get("method") == "GET", f"method: {tpl.get('method')}")
     check(tpl.get("host") == "https://tm.t-bank-app.ru", f"host: {tpl.get('host')}")

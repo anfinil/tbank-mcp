@@ -37,7 +37,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 sys.path.insert(0, HERE)
 
-from src import journal, observability, server, trace         # noqa: E402
+from tbank_mcp import journal, observability, server, trace   # noqa: E402
 from elicit_fake import (FakeCtx, accept_ctx, cancel_ctx,      # noqa: E402
                          decline_ctx, incapable_ctx, mcp_error)
 from test_requisites import LegalSession, fixture, run_tool   # noqa: E402

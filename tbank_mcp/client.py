@@ -10,8 +10,9 @@ Reads use builtin endpoint shapes (endpoints.py — static API params, no
 device/session/account secrets) + the live session. `pay`/`group_pay` are
 HMAC-SHA256 `x-api-signature` (key = sessionid). api/id/*.t-bank-app.ru serve a
 cert by the Russian Trusted Root CA, which no OS trust store ships; tls.py builds
-ca/bundle.pem from the system store plus that root, shipped in ca/roots/ and pinned
-by SHA-256. Certificates are never taken from the network.
+a bundle (in ~/.local/share/tbank-mcp/, see tls.BUNDLE) from the system store plus
+that root, shipped in ca/roots/ and pinned by SHA-256. Certificates are never
+taken from the network.
 """
 from __future__ import annotations
 
@@ -32,6 +33,7 @@ from urllib.parse import urlparse
 
 import requests
 
+from . import tls
 from .endpoints import BUILTIN_ENDPOINTS, VERTICALS, VERTICAL_ALIASES, APP_VERSION
 from .observability import _redact_value
 
@@ -96,12 +98,7 @@ def _need_store(app_id: str, point_id: str) -> tuple[str, str]:
         raise TbankApiError("NO_STORE_CONTEXT",
             "app_id/point_id required (from grocery_stores()) — no silent default store.")
     return app_id, point_id
-_CA_BUNDLE = os.environ.get(
-    "TBANK_CA_BUNDLE",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ca", "bundle.pem"),
-)
-if not os.path.exists(_CA_BUNDLE):
-    _CA_BUNDLE = None
+_CA_BUNDLE = tls.BUNDLE if os.path.exists(tls.BUNDLE) else None
 
 
 def _builtin_fingerprint(device_id: str) -> str:
@@ -1167,8 +1164,8 @@ class MobileSession:
             self._http.proxies = {"http": self.proxy, "https": self.proxy}
         # Build the CA bundle on startup = system store + the pinned roots in
         # ca/roots/. Cheap and offline (no openssl, no network), so it is safe to
-        # do every time and it keeps a fresh clone working: ca/bundle.pem is
-        # generated and gitignored, so it does not exist until this runs.
+        # do every time and it keeps a fresh install working: the bundle is
+        # generated into the user data dir and does not exist until this runs.
         # The adapter retries once on an SSL failure by rebuilding from the SAME
         # trusted material — it never learns a certificate from the peer.
         _bundle_path = _CA_BUNDLE  # latched at import; may be None on a fresh machine
@@ -1177,8 +1174,12 @@ class MobileSession:
             _tls.rebuild_bundle()
             self._http.mount("https://", _tls.RobustTLSAdapter())
             _bundle_path = _tls.BUNDLE  # canonical path — now exists (rebuild built it)
-        except Exception:
-            pass
+        except Exception as e:
+            # Swallowed on purpose (system store may still cover the host being
+            # called), but never silently: an unwritable bundle path otherwise
+            # resurfaces later as CERTIFICATE_VERIFY_FAILED misread as interception.
+            tls._log(f"bundle rebuild failed ({e}) — verify falls back to a previously "
+                     f"built bundle if one exists, else the system trust store")
         # Set verify AFTER rebuild_bundle, re-checked at runtime. The module-level
         # _CA_BUNDLE is evaluated ONCE at import: on a fresh machine where ca/bundle.pem
         # didn't exist yet, it latches to None and the old `if _CA_BUNDLE: verify=...`
@@ -2021,8 +2022,8 @@ class MobileSession:
             _tls.rebuild_bundle()
             jar.mount("https://", _tls.RobustTLSAdapter())
             jar.verify = _tls.BUNDLE
-        except Exception:
-            pass
+        except Exception as e:
+            tls._log(f"bundle rebuild failed ({e}) — cookie jar stays on the system trust store")
         return jar
 
     def _ensure_tmsg(self) -> None:

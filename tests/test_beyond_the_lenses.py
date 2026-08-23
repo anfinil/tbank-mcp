@@ -39,8 +39,8 @@ os.environ["TBANK_ATTEMPTS"] = os.path.join(_TMP, "attempts.jsonl")
 os.environ["TBANK_EVENTS"] = os.path.join(_TMP, "events.jsonl")
 os.environ["TBANK_SESSION"] = os.path.join(_TMP, "session.json")
 
-from src import client, server                                   # noqa: E402
-from src.client import MobileSession, TbankApiError              # noqa: E402
+from tbank_mcp import client, server                             # noqa: E402
+from tbank_mcp.client import MobileSession, TbankApiError        # noqa: E402
 
 failures = []
 

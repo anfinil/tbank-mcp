@@ -40,8 +40,8 @@ os.environ["TBANK_EVENTS"] = os.path.join(_TMP, "events.jsonl")
 
 import requests                                                    # noqa: E402
 
-from src import journal, observability as obs, server, tls          # noqa: E402
-from src.client import MobileSession, TbankApiError                 # noqa: E402
+from tbank_mcp import journal, observability as obs, server, tls    # noqa: E402
+from tbank_mcp.client import MobileSession, TbankApiError           # noqa: E402
 
 failures = []
 
@@ -361,7 +361,7 @@ def test_a_session_that_never_reached_disk_is_not_reported_as_active():
     На банке это не приговор (refresh_token ротируется, но остаётся silent_relogin
     по SSO_SESSION), однако «обычно вылечится» — не повод рапортовать успех."""
     import tempfile
-    from src.client import MobileSession
+    from tbank_mcp.client import MobileSession
 
     class _Stub(MobileSession):
         # Заглушки МЕТОДАМИ, не атрибутами: _save_session сериализует __dict__, и

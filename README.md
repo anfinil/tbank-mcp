@@ -1,5 +1,7 @@
 # T-Bank MCP
 
+<!-- mcp-name: io.github.icyberdeveloper/tbank-mcp -->
+
 **T-Bank (Т-Банк) MCP** — mobile banking API server for Claude Code, Codex, ChatGPT, and other MCP-capable agents.
 
 ## Features
@@ -13,9 +15,12 @@
   invest advisor, login
 - **Pinned CA trust**: system store + the Russian Trusted Root CA (Минцифры), which no
   OS ships and every `*.t-bank-app.ru` host needs — that is most of the 22 hosts this
-  MCP talks to. Shipped in `ca/roots/`, pinned by SHA-256. Leaf/intermediate rotation
-  needs no action; a root rotation is a PEM drop into `ca/roots/` (or `TBANK_EXTRA_CA`).
-  Certificates are never learned from the network — see the header of `src/tls.py`.
+  MCP talks to. Shipped in `tbank_mcp/ca/roots/`, pinned by SHA-256. Leaf/intermediate rotation
+  needs no action; a root rotation is a PEM drop into `tbank_mcp/ca/roots/` (or `TBANK_EXTRA_CA`).
+  The verify bundle is (re)generated from that material into
+  `~/.local/share/tbank-mcp/bundle.pem`; `TBANK_CA_BUNDLE` relocates it — it is a
+  write target, not a curated input, so extra roots go in via `TBANK_EXTRA_CA`.
+  Certificates are never learned from the network — see the header of `tbank_mcp/tls.py`.
 - **Grocery checkout**: search → cart → order → pay (proven end-to-end)
 - **Secure login**: password/PIN stay OUT of the LLM context (local CLI or env var)
 
@@ -43,6 +48,19 @@ flow:
 ~/.claude/plugins/*/tbank/.venv/bin/python -m playwright install chromium
 ```
 
+### From PyPI (server only, no skills)
+
+```bash
+pip install tbank-mcp
+claude mcp add tbank -- tbank-mcp
+```
+
+The `tbank-mcp` console script starts the stdio server; the pinned CA roots and
+the flows reference ship inside the wheel, so it runs from anywhere. Skills are
+not on PyPI — install the plugin (or copy `skills/` from the repo) to get them.
+The grocery checkout browser stays opt-in here too:
+`python -m playwright install chromium`.
+
 ### Manually (clone, no plugin)
 
 ```bash
@@ -53,7 +71,7 @@ pip install -e .
 python -m playwright install chromium
 
 # MCP server:
-claude mcp add tbank -- ./.venv/bin/python -m src.server
+claude mcp add tbank -- ./.venv/bin/python -m tbank_mcp.server
 
 # Skills — a COPY, so it does not follow the repo. Re-run after every pull, or
 # the installed skills quietly describe an older version of these tools.
@@ -127,7 +145,7 @@ read anywhere: the phone is always a command-line argument.
   "mcpServers": {
     "tbank": {
       "command": "/path/to/tbank-mcp/.venv/bin/python",
-      "args": ["-m", "src.server"],
+      "args": ["-m", "tbank_mcp.server"],
       "cwd": "/path/to/tbank-mcp"
     }
   }
@@ -256,8 +274,8 @@ present the tests additionally check the fixtures have not drifted from it.
 - **Password / PIN** — not in git, not in the code, and not in the LLM context if you
   use `login_cli.py`.
 - **No secrets in the repo.** Two kinds of committed material look secret-adjacent and
-  are not: `ca/roots/*.pem` are public CA root certificates, shipped on purpose and
-  pinned by SHA-256 in `src/tls.py`; `tests/fixtures/*.json` are request contracts
+  are not: `tbank_mcp/ca/roots/*.pem` are public CA root certificates, shipped on purpose and
+  pinned by SHA-256 in `tbank_mcp/tls.py`; `tests/fixtures/*.json` are request contracts
   scrubbed from a real capture — real structure and protocol values, synthetic
   account, phone, address and device ids. The captures themselves are gitignored and
   never leave the machine.
@@ -328,7 +346,7 @@ present the tests additionally check the fixtures have not drifted from it.
   `payment_status(attempt_id)` — never by repeating the transfer, which would create a
   second pending payment.
 - **Tool annotations.** Every tool declares what it does, in one table —
-  `TOOL_KINDS` in `src/server.py` — and a tool missing from it raises at import
+  `TOOL_KINDS` in `tbank_mcp/server.py` — and a tool missing from it raises at import
   rather than defaulting to anything. Three kinds: 67 are `readOnlyHint: true` and
   may run without a prompt; 15 write something that costs nothing (a cart, a
   booking, a message, an OTP, a token, a local file) and are marked

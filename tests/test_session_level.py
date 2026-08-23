@@ -49,8 +49,8 @@ os.environ["TBANK_EVENTS"] = os.path.join(_TMP, "events.jsonl")
 import json                                                        # noqa: E402
 
 from elicit_fake import accept_ctx                                 # noqa: E402
-from src import server, trace                                      # noqa: E402
-from src.client import MobileSession, TbankApiError                # noqa: E402
+from tbank_mcp import server, trace                                # noqa: E402
+from tbank_mcp.client import MobileSession, TbankApiError          # noqa: E402
 
 failures = []
 
@@ -455,7 +455,7 @@ def test_wait_for_propagation_polls_then_gives_up_without_raising():
     timeout it degrades to «waited the deadline and proceeded» — never worse than the
     sleep, and it must never propagate the probe's exception."""
     import time as _time
-    from src.client import _wait_for_propagation
+    from tbank_mcp.client import _wait_for_propagation
 
     # (a) succeeds on the third probe → returns as soon as it stops raising.
     calls = {"n": 0}
@@ -489,11 +489,11 @@ def test_invest_portfolio_asks_for_dates_in_moscow_not_millisecond_timestamps():
     dropped the current Moscow trading day. Both are untested; pin the shape."""
     import re as _re
     from datetime import datetime, timedelta
-    from src.client import MobileSession
+    from tbank_mcp.client import MobileSession
     try:
-        from src.server import MSK
+        from tbank_mcp.server import MSK
     except ImportError:
-        from src.client import MSK
+        from tbank_mcp.client import MSK
 
     seen = {}
 
@@ -535,7 +535,7 @@ def test_the_login_next_step_hint_never_routes_a_password_through_the_chat():
     through the agent (login() and the README say so), so the hint sends the user to
     login_cli.py. It once said «Вызови confirm_password(<пароль>)», inviting the
     exact leak the rest of the flow avoids."""
-    from src.client import _next_step_hint
+    from tbank_mcp.client import _next_step_hint
 
     otp = _next_step_hint({"step": "otp"})
     check("confirm_otp" in otp, f"otp step must name confirm_otp: {otp!r}")

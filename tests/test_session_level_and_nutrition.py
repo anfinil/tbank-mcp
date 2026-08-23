@@ -24,7 +24,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.client import MobileSession, TbankApiError  # noqa: E402
+from tbank_mcp.client import MobileSession, TbankApiError  # noqa: E402
 
 failures = []
 

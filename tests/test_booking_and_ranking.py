@@ -41,8 +41,8 @@ os.environ.setdefault("TBANK_EVENTS", os.path.join(_TMP, "events.jsonl"))
 os.environ.setdefault("TBANK_TRACE_FILE", os.path.join(_TMP, "calls.jsonl"))
 
 from elicit_fake import accept_ctx  # noqa: E402
-from src.client import MobileSession  # noqa: E402
-from src.server import _rank_rows, _seat_rows  # noqa: E402
+from tbank_mcp.client import MobileSession  # noqa: E402
+from tbank_mcp.server import _rank_rows, _seat_rows  # noqa: E402
 
 
 def _run(coro_or_val):
@@ -241,7 +241,7 @@ class PaySession(ReplaySession):
 def check_ticket_pay_amount_guard():
     """The only guard on a path that has never been run live: the amount is
     re-read from the bank and a mismatch must stop the payment."""
-    from src import server
+    from tbank_mcp import server
 
     saved = server._require
     try:
@@ -399,7 +399,7 @@ def check_every_vertical_reaches_its_own_path():
     A theatre kind would have gone to /order/create/movie and been accepted.
 
     The table has to route all four, and refuse a fifth rather than fall back."""
-    from src.client import TbankApiError
+    from tbank_mcp.client import TbankApiError
     want = {
         "movie": ("scheme_sectors_movie", "order_create_movie", "order_cancel_movie"),
         "concert": ("scheme_sectors_concert", "order_create_concert", "order_cancel"),
@@ -444,7 +444,7 @@ def check_cancel_reads_the_order_before_asking():
     already know the answer to — and a refusal must never read like a cancellation.
     The previous version of this test asserted the opposite lie (that a missing
     paymentId gets a silent "Success"), which is why it is gone."""
-    from src import server
+    from tbank_mcp import server
 
     class CancelSession(ReplaySession):
         """Answers the order card and the cancel separately, and records only the
@@ -633,7 +633,7 @@ def check_train_pay_methods_do_not_offer_an_unusable_account():
     CARD — there is no way to pass an account — so listing accounts as a «способ
     оплаты» sent the agent hunting for an argument that does not exist. Accounts
     must be marked app-only, and the pay instruction must offer card_id alone."""
-    from src import server
+    from tbank_mcp import server
     methods = {"amount": 4200, "cards": [
                    {"maskedCardNumber": "•• 1234", "cardId": "card-1"}],
                "accounts": [

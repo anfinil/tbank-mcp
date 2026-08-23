@@ -40,8 +40,8 @@ os.environ.setdefault("TBANK_ATTEMPTS",
 os.environ.setdefault("TBANK_TRACE_FILE",
                       os.path.join(tempfile.gettempdir(), "tbank-test-calls.jsonl"))
 
-from src import server  # noqa: E402
-from src.client import MobileSession, TbankApiError  # noqa: E402
+from tbank_mcp import server  # noqa: E402
+from tbank_mcp.client import MobileSession, TbankApiError  # noqa: E402
 
 FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                        "fixtures", "travel.json")
@@ -414,7 +414,7 @@ def test_tpay_flow_sends_account_step_and_correct_headers():
         `T-Session-Id=sessionId` on both.
     Also: every tpay request carries the WEBVIEW UA, not the native one.
     """
-    from src.client import MobileSession
+    from tbank_mcp.client import MobileSession
 
     class Resp:
         def __init__(self, body=b"", js=None):
@@ -542,7 +542,7 @@ def test_travel_pay_signature_is_reproduced():
     hash; and, when the real capture is present, the exact captured signature of the
     flight-pay POST (item 1109) is reproduced byte for byte — the non-circular proof,
     like tests/test_transfer.py does for /v1/pay."""
-    from src.client import travel_api_signature, TRAVEL_SIG_HEADER
+    from tbank_mcp.client import travel_api_signature, TRAVEL_SIG_HEADER
     import urllib.parse
 
     # (1) format stability — a fake session, a fixed body, a frozen expected hash.
@@ -582,7 +582,7 @@ def test_travel_pay_signature_is_reproduced():
     def cap_hdr(n):
         return next((l.split(":", 1)[1].strip() for l in hs.split("\r\n")
                      if l.lower().startswith(n.lower() + ":")), None)
-    from src.client import MobileSession
+    from tbank_mcp.client import MobileSession
     sess = MobileSession("sid", "rt")
     url, built = sess._travel_pay_request(
         key, cap_hdr("Cookie"), real_body.decode("utf-8"),
@@ -620,7 +620,7 @@ def test_flight_pay_without_a_travel_session_sends_nothing():
     """The signature key is the travel web session. Without it flight_pay must refuse
     BEFORE any network call — nothing is signed, nothing is sent, nothing is charged.
     A money call that quietly went out unsigned would be the worst outcome."""
-    from src.client import MobileSession, TbankApiError
+    from tbank_mcp.client import MobileSession, TbankApiError
 
     posted = []
 
