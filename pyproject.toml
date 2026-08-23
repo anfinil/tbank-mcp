@@ -1,6 +1,6 @@
 [project]
 name = "tbank-mcp"
-version = "0.2.0"
+version = "0.2.1"
 description = "MCP server for the T-Bank (Т-Банк) mobile personal-banking API (capture-driven, headless, pinned-root TLS)."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -44,6 +44,10 @@ Issues = "https://github.com/icyberdeveloper/tbank-mcp/issues"
 
 [project.scripts]
 tbank-mcp = "tbank_mcp.server:main"
+# The password/PIN never travel through the agent — first login happens in the
+# user's own terminal. A pip install must therefore ship the login CLI too, or
+# the server is unusable on a fresh device.
+tbank-mcp-login = "tbank_mcp.login_cli:main"
 
 [build-system]
 # setuptools>=77.0.3 is the first release that accepts the PEP 639 SPDX

@@ -954,8 +954,9 @@ def _store(app_id: str, point_id: str) -> tuple[str, str]:
 def login(phone: str) -> str:
     """Начать логин. Отправляет SMS OTP. Возвращает какой шаг следующий (otp/password/pin).
     Спроси у пользователя код и вызови confirm_otp(otp); если банк попросит —
-    confirm_pin(pin). Пароль вводится не через агента: запусти login_cli.py в
-    своём терминале."""
+    confirm_pin(pin). Пароль вводится не через агента: пользователь запускает
+    tbank-mcp-login (pip-установка) или login_cli.py (репозиторий) в своём
+    терминале."""
     global _session, _session_mtime
     _session = _blank_session()
     # Pin the mtime to the file as it stands: this blank session is now current, and
@@ -983,9 +984,10 @@ def confirm_otp(otp: str) -> str:
 @mcp.tool()
 def confirm_password(password: str) -> str:
     """НЕ вызывай напрямую из чата: пароль аккаунта не должен проходить через
-    агента. Этот тул существует для login_cli.py, который читает пароль из
-    терминала, невидимого модели. Если банк просит password (первый логин на
-    новом устройстве) — попроси пользователя запустить login_cli.py."""
+    агента. Этот тул существует для логин-CLI (tbank-mcp-login, в репозитории —
+    login_cli.py), который читает пароль из терминала, невидимого модели. Если
+    банк просит password (первый логин на новом устройстве) — попроси
+    пользователя запустить tbank-mcp-login (или login_cli.py из репозитория)."""
     global _session
     if not _session: return _err(_NO_SESSION_YET)
     try:

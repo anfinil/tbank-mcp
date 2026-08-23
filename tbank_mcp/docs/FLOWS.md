@@ -723,4 +723,5 @@ back, and what the installment plans are. It changes nothing.
     text: take it from the user and call with `otp='<код>'`. It is never logged.
   - `login(phone)` — text flow: returns the next step, the agent collects the code
     and calls `confirm_otp(otp)` (and `confirm_pin`, if asked). The password is
-    entered in the terminal via `login_cli.py`, never through the agent.
+    entered in the terminal via the login CLI (`tbank-mcp-login`, or
+    `login_cli.py` in a repo checkout), never through the agent.

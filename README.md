@@ -52,11 +52,14 @@ flow:
 
 ```bash
 pip install tbank-mcp
+tbank-mcp-login +7XXXXXXXXXX   # first login: SMS code + password in YOUR terminal, not the LLM
 claude mcp add tbank -- tbank-mcp
 ```
 
 The `tbank-mcp` console script starts the stdio server; the pinned CA roots and
-the flows reference ship inside the wheel, so it runs from anywhere. Skills are
+the flows reference ship inside the wheel, so it runs from anywhere.
+`tbank-mcp-login` is the same login CLI as the repo's `login_cli.py` — both write
+the session to the same file the server reads. Skills are
 not on PyPI — install the plugin (or copy `skills/` from the repo) to get them.
 The grocery checkout browser stays opt-in here too:
 `python -m playwright install chromium`.
@@ -130,7 +133,8 @@ If you are content to hand the password to the agent:
 account you care about, use Option 1.
 
 Both options need the SMS code typed in either way, so there is no unattended
-login. `TBANK_PASSWORD` (and `TBANK_PIN`) are read **only** by `login_cli.py` — the
+login. `TBANK_PASSWORD` (and `TBANK_PIN`) are read **only** by the login CLI
+(`tbank-mcp-login` / `login_cli.py`) — the
 env example above — and never by the MCP server or the LLM. `TBANK_PHONE` is not
 read anywhere: the phone is always a command-line argument.
 
@@ -268,11 +272,11 @@ present the tests additionally check the fixtures have not drifted from it.
 
 - **`session.json`** — canonical path `~/.local/share/tbank-mcp/session.json`
   (override with `TBANK_SESSION`), mode 0600, owner-only. It holds tokens. Both
-  `login_cli.py` and the MCP server read the same file, so there is nothing to
+  the login CLI and the MCP server read the same file, so there is nothing to
   configure. On start-up the MCP logs the path, size and permissions only — never a
   token or a cookie.
 - **Password / PIN** — not in git, not in the code, and not in the LLM context if you
-  use `login_cli.py`.
+  use the login CLI (`tbank-mcp-login` / `login_cli.py`).
 - **No secrets in the repo.** Two kinds of committed material look secret-adjacent and
   are not: `tbank_mcp/ca/roots/*.pem` are public CA root certificates, shipped on purpose and
   pinned by SHA-256 in `tbank_mcp/tls.py`; `tests/fixtures/*.json` are request contracts

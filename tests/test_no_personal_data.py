@@ -88,6 +88,10 @@ SHAPES = {
 # validation reject anything else — the prefix is the protocol, the tail is the
 # person. Every tail here is zeros or a counter.
 ALLOWED = {
+    # Публичный id ЭТОГО репозитория на GitHub (api.github.com/repos/... отдаёт его
+    # любому) — server.json указывает его для MCP Registry как защиту от подмены
+    # репозитория после удаления. Никого не идентифицирует.
+    "1310450222",
     # ИНН — счётчики из фикстур и КБЖУ-заглушек
     "000000000000", "000000000001", "000000000002", "000000000003",
     "000000000004", "000000000012", "100000000000", "100000000001",

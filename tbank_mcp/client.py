@@ -688,19 +688,21 @@ def _next_step_hint(resp: dict) -> str:
     step = str((resp or {}).get("step", "") or "")
     if step == "password":
         # The password must NOT travel through the agent or the chat — login()
-        # and the README both say so. confirm_password exists for login_cli.py,
-        # which reads the password from a terminal the model never sees. Telling
-        # the agent «Вызови confirm_password(<пароль>)» here invited exactly the
-        # leak the rest of the flow is built to avoid.
+        # and the README both say so. confirm_password exists for the login CLI
+        # (tbank-mcp-login, or login_cli.py in a repo checkout), which reads the
+        # password from a terminal the model never sees. Telling the agent
+        # «Вызови confirm_password(<пароль>)» here invited exactly the leak the
+        # rest of the flow is built to avoid.
         return ("Следующий шаг — password. Пароль вводится НЕ через агента: "
-                "запусти login_cli.py в своём терминале.")
+                "запусти tbank-mcp-login (или login_cli.py из репозитория) "
+                "в своём терминале.")
     tool = {"otp": "confirm_otp(<код из СМС>)",
             "pin": "confirm_pin(<PIN приложения>)"}.get(step)
     if tool:
         return f"Следующий шаг — {step}. Вызови {tool}."
     return (f"Следующий шаг — '{step or 'неизвестен'}'. Подходящий тул: confirm_otp / "
-            f"confirm_pin; пароль — только через login_cli.py, не через чат. Ответ: "
-            f"{json.dumps(resp, ensure_ascii=False)[:200]}")
+            f"confirm_pin; пароль — только через tbank-mcp-login / login_cli.py, "
+            f"не через чат. Ответ: {json.dumps(resp, ensure_ascii=False)[:200]}")
 
 
 def poll_until_ready(probe, ready, *, timeout_ms: int, interval_ms: int):
