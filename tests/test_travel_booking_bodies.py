@@ -616,10 +616,12 @@ def test_travel_pay_signature_is_reproduced():
           "against the flight-pay capture; check_auth sessionId parse pinned too")
 
 
-def test_flight_pay_without_a_travel_session_sends_nothing():
-    """The signature key is the travel web session. Without it flight_pay must refuse
-    BEFORE any network call — nothing is signed, nothing is sent, nothing is charged.
-    A money call that quietly went out unsigned would be the worst outcome."""
+def test_flight_pay_without_sso_sends_nothing():
+    """flight_pay signs with the travel web session, minted by the session-link bridge
+    from the SSO login cookie. With no SSO_SESSION there is nothing to mint from, so
+    both the bridge and flight_pay must refuse BEFORE any network call — nothing
+    signed, nothing sent, nothing charged. A money call that quietly went out unsigned
+    would be the worst outcome, so the refusal must precede even opening a jar."""
     from tbank_mcp.client import MobileSession, TbankApiError
 
     posted = []
@@ -630,24 +632,315 @@ def test_flight_pay_without_a_travel_session_sends_nothing():
         def get(self, *a, **k):
             posted.append(("get", a, k)); raise AssertionError("network!")
 
-    s = MobileSession("sid", "rt")   # travel_session_id is "" by default
+    def no_jar():
+        raise AssertionError("opened a jar before checking for an SSO session")
+
+    s = MobileSession("sid", "rt")   # no sso_login_cookie, no travel_session_id
     s._http = Blocked()
+    s._fresh_jar = no_jar
     try:
         s.flight_pay({"offerId": "u-1", "amount": 100})
-        failures.append("flight_pay sent a payment with no travel session")
+        failures.append("flight_pay sent a payment with no SSO session")
     except TbankApiError as e:
-        check(e.result_code in ("NO_TRAVEL_SESSION", "TRAVEL_LINK_NOT_WIRED"),
-              f"wrong refusal code: {e.result_code}")
+        check(e.result_code == "NO_SSO_SESSION",
+              f"flight_pay must refuse without SSO: {e.result_code}")
     check(not posted, f"flight_pay hit the network before it had a session: {posted}")
 
-    # travel_link_session is honestly not wired live (no blind OAuth on a money path).
     try:
         s.travel_link_session()
-        failures.append("travel_link_session pretended to work")
+        failures.append("travel_link_session pretended to work with no SSO cookie")
     except TbankApiError as e:
-        check(e.result_code == "TRAVEL_LINK_NOT_WIRED",
-              f"travel_link_session must declare itself not wired: {e.result_code}")
-    print("  flight_pay: refuses before the wire when there is no travel session to sign with")
+        check(e.result_code == "NO_SSO_SESSION",
+              f"travel_link_session must refuse without SSO: {e.result_code}")
+    print("  flight_pay: with no SSO_SESSION, bridge and pay both refuse before the wire")
+
+
+def test_travel_link_bridge_drives_the_captured_legs():
+    """Drive travel_link_session() through a recording jar and pin the three web legs.
+
+    The bridge moves no money, so it is exercised live too — but a unit test keeps the
+    request SHAPES from drifting: the authorize query (origin/appName/appVersion/theme/
+    link_token) is exactly the captured flights webview's, the id.tbank.ru Location is
+    FOLLOWED rather than reconstructed, and the sessionId is recovered from the
+    check_auth postMessage. The SSO cookies must be seeded so they reach BOTH
+    www.tbank.ru and id.tbank.ru."""
+    import urllib.parse
+    from tbank_mcp.client import (MobileSession, TbankApiError, TRAVEL_LINK_APP,
+                                  TRAVEL_LINK_APP_VERSION, TRAVEL_LINK_ORIGIN)
+
+    ID_URL = ("https://id.tbank.ru/auth/authorize?state=JWT&client_id=portal-api-link"
+              "&code_challenge=CH&code_challenge_method=S256&auth_token=LINKTOKEN"
+              "&redirect_uri=https%3A%2F%2Fwww.tbank.ru%2Fapi%2Fcommon%2Fv1%2F"
+              "session%2Flink%2Fcheck_auth%2F")
+    CHECK_URL = ("https://www.tbank.ru/api/common/v1/session/link/check_auth/"
+                 "?code=c.CODE&state=JWT&session_state=SS")
+    MINT_HTML = ('<html><script>window.parent.postMessage({"sessionId":'
+                 '"TOKEN.authenticon-pod-abcde","accessLevel":"CLIENT",'
+                 '"messageCode":"authComplete"}, \'*\')</script></html>')
+
+    class Resp:
+        def __init__(self, status=200, location=None, text=""):
+            self.status_code = status
+            self.headers = {"Location": location} if location else {}
+            self.text = text
+
+    class Cookies:
+        def __init__(self):
+            self.jar = {}
+
+        def set(self, k, v, domain=None):
+            self.jar[(k, domain)] = v
+
+    class RecJar:
+        def __init__(self, level="CLIENT"):
+            self.gets = []
+            self.cookies = Cookies()
+            self.level = level
+
+        def get(self, url, params=None, headers=None, timeout=None, allow_redirects=None):
+            self.gets.append({"url": url, "params": params or {},
+                              "redirects": allow_redirects})
+            if "session/link/authorize" in url:
+                return Resp(303, location=ID_URL)
+            if url.startswith("https://id.tbank.ru/auth/authorize"):
+                return Resp(303, location=CHECK_URL)
+            if "session/link/check_auth" in url:
+                return Resp(200, text=MINT_HTML.replace('"CLIENT"', f'"{self.level}"'))
+            raise AssertionError("unexpected url " + url)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    s = MobileSession("sid", "rt")
+    s.sso_login_cookie = "SSO_SESSION=abc; api_sso_id=def; sso_used=1"
+    jar = RecJar()
+    s._fresh_jar = lambda: jar
+    s.travel_link_auth_token = lambda: "LINKTOKEN"
+
+    sid = s.travel_link_session(force=True)
+    check(sid == "TOKEN.authenticon-pod-abcde",
+          f"the bridge must return the postMessage sessionId: {sid}")
+    check(s.travel_session_id == sid and s.travel_session_at > 0,
+          "the minted session must be cached with a timestamp")
+
+    domains = {d for (_, d) in jar.cookies.jar}
+    check(domains == {".tbank.ru"},
+          f"SSO cookies must be seeded at .tbank.ru so id.tbank.ru gets them: {domains}")
+    names = {k for (k, _) in jar.cookies.jar}
+    check({"SSO_SESSION", "api_sso_id", "sso_used"} <= names,
+          f"the SSO cookies must be on the jar: {names}")
+
+    authorize = next(g for g in jar.gets if "session/link/authorize" in g["url"])
+    check(authorize["params"] == {"origin": TRAVEL_LINK_ORIGIN, "appName": TRAVEL_LINK_APP,
+                                  "appVersion": TRAVEL_LINK_APP_VERSION, "theme": "context",
+                                  "link_token": "LINKTOKEN"},
+          f"authorize query drifted from the capture: {authorize['params']}")
+    check(authorize["redirects"] is False,
+          "authorize must NOT follow redirects — its Location is the SSO url to read")
+    idleg = next(g for g in jar.gets if g["url"].startswith("https://id.tbank.ru"))
+    check(idleg["url"] == ID_URL,
+          "the SSO leg must GET the exact Location the bank returned, not a reconstruction")
+    # Match the check_auth ENDPOINT, not the substring: the id.tbank.ru url also
+    # carries "check_auth" inside its redirect_uri, so a loose match grabs that leg.
+    checkleg = next(g for g in jar.gets
+                    if g["url"].startswith(
+                        "https://www.tbank.ru/api/common/v1/session/link/check_auth"))
+    check(checkleg["url"] == CHECK_URL, "check_auth must be the Location from the SSO leg")
+
+    # A non-CLIENT session would sign a pay the gateway then rejects — refuse it.
+    s2 = MobileSession("sid", "rt")
+    s2.sso_login_cookie = "SSO_SESSION=abc"
+    s2._fresh_jar = lambda: RecJar(level="ANONYMOUS")
+    s2.travel_link_auth_token = lambda: "LINKTOKEN"
+    try:
+        s2.travel_link_session(force=True)
+        failures.append("a non-CLIENT travel session was accepted")
+    except TbankApiError as e:
+        check(e.result_code == "TRAVEL_LINK_NOT_CLIENT",
+              f"non-CLIENT must be refused by name: {e.result_code}")
+    # The refusal is only half of it: the ANONYMOUS session must be left UN-cached, or
+    # the next flight_pay within the window would reuse it and sign a doomed pay.
+    check(s2.travel_session_id == "" and s2.travel_session_at == 0.0,
+          "an ANONYMOUS session must NOT be cached — it would poison the next pay")
+
+    # Capture cross-check: our authorize params == the real webview's, field for field.
+    capture = os.environ.get("TBANK_CAPTURE_TRAVEL",
+                             os.path.expanduser("~/tbank-app/captures-flight-train.xml"))
+    if os.path.exists(capture):
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
+        import regen_travel as R
+        line = next(
+            R.raw(it, "request").split(b"\r\n", 1)[0].decode("latin1")
+            for it in R.items(capture)
+            if b"session/link/authorize" in R.raw(it, "request").split(b"\r\n", 1)[0])
+        cq = urllib.parse.parse_qs(urllib.parse.urlparse(line.split(" ")[1]).query)
+        for k in ("origin", "appName", "appVersion", "theme"):
+            check(cq[k][0] == authorize["params"][k],
+                  f"authorize {k}: capture {cq[k][0]!r} != ours {authorize['params'][k]!r}")
+        check("link_token" in cq, "the captured authorize must carry a link_token")
+        print("  travel-link: bridge legs + authorize query pinned against the capture")
+    else:
+        print("  travel-link: bridge legs pinned (capture absent — query cross-check skipped)")
+
+
+def test_flight_pay_with_preset_session_skips_the_bridge():
+    """An explicit travel_session_id signs and posts directly — the bridge is only for
+    when one is not supplied, and must not run when it is. This is also the override a
+    caller uses to pin a known-good session."""
+    from tbank_mcp.client import MobileSession
+
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            return {"status": "Working", "detachKey": "ORDER-1", "payload": {}}
+
+    posted = {}
+
+    class Http:
+        def post(self, url, data=None, headers=None, timeout=None):
+            posted["url"] = url
+            posted["headers"] = headers
+            return Resp()
+
+    s = MobileSession("sid", "rt")
+    s._http = Http()
+    s._fresh_jar = lambda: (_ for _ in ()).throw(AssertionError("the bridge ran!"))
+    env = s.flight_pay({"offerId": "u-1", "amount": 100},
+                       travel_session_id="WEBSID.authenticon-pod-x", cookie="ma_ss=1")
+    check(env.get("detachKey") == "ORDER-1", f"the envelope must pass through: {env}")
+    check("sessionId=WEBSID.authenticon-pod-x" in posted["url"],
+          f"the preset session must key the signed request: {posted['url']}")
+    check("X-Api-Signature" in posted["headers"] and "Authorization" not in posted["headers"],
+          "a travel pay is signed and web-cookie, never a mobile Bearer")
+    print("  flight_pay: an explicit travel session signs directly, no bridge call")
+
+
+def test_flight_pay_mint_failure_never_reads_as_unknown():
+    """A mint failure is ALWAYS pre-POST, so flight_book must read it as «not sent /
+    nothing charged», never «unknown outcome». The mint's DEPENDENCIES raise codes the
+    server list does not name literally — the CLIENT re-mint raises SessionExpired
+    ('invalid_grant'), the lapsed-window token read raises INSUFFICIENT_PRIVILEGES /
+    HTTP_401, a WAF interstitial raises HTTP_200 — so flight_pay must re-tag every
+    mint-time failure under the TRAVEL_LINK prefix the handler routes to «not sent».
+    Nothing may be POSTed. (Regression for the misclassification the review caught.)"""
+    from tbank_mcp.client import (MobileSession, TbankApiError, SessionExpired,
+                                  UnreadableResponse)
+
+    def whitelisted(code):   # mirrors server._do_flight_book's not-sent predicate
+        return code.startswith("TRAVEL_LINK") or code in ("NO_SSO_SESSION", "NO_LINK_TOKEN")
+
+    posted = []
+
+    class Blocked:
+        def post(self, *a, **k):
+            posted.append("POST")
+            raise AssertionError("a payment POST fired on a mint failure")
+
+    cases = [
+        SessionExpired("invalid_grant", "токен истёк"),        # ensure_client_session -> refresh
+        TbankApiError("INSUFFICIENT_PRIVILEGES", "нет прав"),  # link_token read, lapsed window
+        SessionExpired("HTTP_401", "401"),                     # _status_error on the token read
+        UnreadableResponse("HTTP_200", "мусор"),               # WAF interstitial, unparseable 200
+        TbankApiError("NO_SSO_SESSION", "нет sso"),            # explicit pre-send, passes through
+        TbankApiError("TRAVEL_LINK_NO_CODE", "нет кода"),      # explicit pre-send, passes through
+    ]
+    for exc in cases:
+        s = MobileSession("sid", "rt")
+        s._http = Blocked()
+        s.travel_link_session = lambda e=exc: (_ for _ in ()).throw(e)
+        try:
+            s.flight_pay({"offerId": "u-1", "amount": 100})
+            failures.append(f"flight_pay did not raise for {exc.result_code}")
+        except TbankApiError as e:
+            check(whitelisted(e.result_code),
+                  f"mint failure {exc.result_code} escaped as {e.result_code} — "
+                  "flight_book would read it as «money may have moved»")
+        check(not posted, f"a POST fired on the {exc.result_code} mint failure: {posted}")
+        posted.clear()
+    print("  flight_pay: every mint failure reads «not sent», never «unknown», no POST")
+
+
+def test_travel_link_session_caches_within_window():
+    """The mint is cached for the ~11-min portal window: a second call without force,
+    inside TRAVEL_PORTAL_TTL, must REUSE it and not re-run the bridge (re-minting burns
+    the single-use link_token and adds a round-trip). force=True, or a session aged past
+    the window, must re-mint. This is the DEFAULT flight_pay path — no preset id, a warm
+    cache — and nothing else exercises it."""
+    from tbank_mcp.client import MobileSession, TRAVEL_PORTAL_TTL
+
+    class Resp:
+        def __init__(self, status=200, location=None, text=""):
+            self.status_code = status
+            self.headers = {"Location": location} if location else {}
+            self.text = text
+
+    class Cookies:
+        def set(self, *a, **k):
+            pass
+
+    ID_URL = "https://id.tbank.ru/auth/authorize?state=JWT"
+    CHECK_URL = "https://www.tbank.ru/api/common/v1/session/link/check_auth/?code=c.C"
+    HTML = ('<html><script>window.parent.postMessage({"sessionId":"S.authenticon-p-x",'
+            '"accessLevel":"CLIENT"}, \'*\')</script></html>')
+
+    class Jar:
+        cookies = Cookies()
+
+        def get(self, url, **k):
+            if "session/link/authorize" in url:
+                return Resp(303, location=ID_URL)
+            if url.startswith("https://id.tbank.ru"):
+                return Resp(303, location=CHECK_URL)
+            return Resp(200, text=HTML)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    mints = {"jars": 0, "tokens": 0}
+    s = MobileSession("sid", "rt")
+    s.sso_login_cookie = "SSO_SESSION=abc"
+    s._fresh_jar = lambda: (mints.__setitem__("jars", mints["jars"] + 1), Jar())[1]
+    s.travel_link_auth_token = lambda: (mints.__setitem__("tokens", mints["tokens"] + 1),
+                                        "LINKTOKEN")[1]
+
+    sid1 = s.travel_link_session()
+    check(mints["jars"] == 1 and mints["tokens"] == 1, "the first call must mint once")
+    sid2 = s.travel_link_session()
+    check(sid2 == sid1 and mints["jars"] == 1 and mints["tokens"] == 1,
+          f"a warm call must reuse the cache, not re-mint: jars={mints['jars']}")
+    s.travel_link_session(force=True)
+    check(mints["jars"] == 2, "force=True must re-mint regardless of the window")
+    s.travel_session_at -= (TRAVEL_PORTAL_TTL + 1)
+    s.travel_link_session()
+    check(mints["jars"] == 3, "a session older than the window must re-mint")
+    print("  travel-link: cache reused within the window; force and age both re-mint")
+
+
+def test_travel_link_auth_token_refuses_empty():
+    """An empty/absent token from the bank must raise NO_LINK_TOKEN — not return "" and
+    let the bridge build an authorize with no link_token (which would mint the wrong
+    thing or fail opaquely). This is the one leg the bridge tests stub, so pin it here."""
+    from tbank_mcp.client import MobileSession, TbankApiError
+
+    s = MobileSession("sid", "rt")
+    s.ensure_client_session = lambda: "CLIENT"
+    s._call_read = lambda *a, **k: {"token": ""}
+    try:
+        s.travel_link_auth_token()
+        failures.append("an empty link_token was accepted")
+    except TbankApiError as e:
+        check(e.result_code == "NO_LINK_TOKEN",
+              f"an empty token must raise NO_LINK_TOKEN: {e.result_code}")
+    s._call_read = lambda *a, **k: {"token": "ABC123"}
+    check(s.travel_link_auth_token() == "ABC123", "a present token must be returned")
+    print("  travel-link: empty link_token refused, present token returned")
 
 
 def test_the_flight_pay_envelope_reports_the_shape_it_got():
@@ -697,7 +990,12 @@ def main():
                test_tpay_init_shape,
                test_tpay_flow_sends_account_step_and_correct_headers,
                test_travel_pay_signature_is_reproduced,
-               test_flight_pay_without_a_travel_session_sends_nothing,
+               test_flight_pay_without_sso_sends_nothing,
+               test_travel_link_bridge_drives_the_captured_legs,
+               test_flight_pay_with_preset_session_skips_the_bridge,
+               test_flight_pay_mint_failure_never_reads_as_unknown,
+               test_travel_link_session_caches_within_window,
+               test_travel_link_auth_token_refuses_empty,
                test_the_flight_pay_envelope_reports_the_shape_it_got,
                test_fixture_matches_capture):
         fn()

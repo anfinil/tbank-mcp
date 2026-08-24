@@ -530,7 +530,12 @@ improvise, and the ids are why:
    call.** Flights have no hold step, so there is nothing between the button and
    the ticket. The button carries the tool's OWN re-priced total, never a number
    the agent typed. Choosing seats also buys the check-in service, so the charge
-   is fare + seats + check-in — three numbers.
+   is fare + seats + check-in — three numbers. The pay is signed with a WEB travel
+   session that `flight_book` mints automatically through the session-link SSO
+   bridge (`client.travel_link_session`) — that bridge is pure authorization, no
+   money. The one step never run live is the pay POST itself; if the bridge cannot
+   mint (no active bank session) the tool refuses «ОПЛАТА НЕ ОТПРАВЛЕНА» — nothing
+   charged, so a mint failure never reads as «may have been charged».
 5. `travel_order_details(order_id)` / `trips()` → the route and the PNR;
    `travel_ticket_file(order_id)` saves the itinerary receipts.
 

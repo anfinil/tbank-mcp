@@ -6121,14 +6121,13 @@ async def flight_book(offer_id: str, fare: int = 1, passengers: str = "me",
     тариф, багаж и правила из flight_offer(), согласие даёт кнопка. Клиент без
     элиситации получает отказ, деньги при этом не двигаются.
 
-    ⚠️ ПОДПИСЬ ВОСПРОИЗВЕДЕНА, НО ЖИВОЙ ПЛАТЁЖ НИ РАЗУ НЕ ВЫПОЛНЯЛСЯ. Схема
-    x-api-signature восстановлена из JS travel-вебвью и совпадает с захватом
-    байт-в-байт (HmacSHA256, ключ — travel-сессия; см. client.travel_api_signature),
-    вместе с X-Detach-Key/X-Detach-Timeout — тул шлёт их все. Чего НЕ хватает:
-    ключ подписи — это ОТДЕЛЬНАЯ web-сессия travel, которую даёт SSO-мост
-    session/link (travel_link_session), а он вживую не подключён. Поэтому сейчас
-    тул честно откажет «ОПЛАТА НЕ ОТПРАВЛЕНА» (деньги не двигаются), пока travel-
-    сессия недоступна. Живьём платёж не гонялся — надёжный путь остаётся приложение.
+    ⚠️ САМ POST ОПЛАТЫ БОЕВЫМ НИ РАЗУ НЕ БЫЛ — это первый прогон списания. Ключ
+    подписи (x-api-signature) — отдельная web-сессия travel — собирается автоматически
+    через SSO-мост session/link (client.travel_link_session): это только авторизация,
+    деньги на этом шаге не двигаются. Не отправлялся вживую ровно последний шаг — сам
+    POST списания. Если сессию travel собрать не удалось (нет активной сессии банка),
+    тул откажет «ОПЛАТА НЕ ОТПРАВЛЕНА» — деньги не двигаются, билет не оформляется.
+    Надёжная альтернатива для гарантии — приложение.
 
     offer_id — из flight_search(), fare — номер тарифа из flight_offer().
     passengers="me" — владелец счёта (паспорт и латиница из данных банка); для
@@ -6264,17 +6263,22 @@ def _do_flight_book(offer_uuid, people, seat_blocks, checkin_price, seat_sum,
         try:
             started = s.flight_pay(body)
         except TbankApiError as e:
-            # No travel session to sign with → the request was NEVER sent. That is a
-            # clean refusal, not an unknown outcome: nothing was charged, so it must
-            # not read as «билет мог выписаться». The signature itself is reproduced
-            # (see travel_api_signature); what is missing is the session-link bridge.
-            if getattr(e, "result_code", "") in ("TRAVEL_LINK_NOT_WIRED", "NO_TRAVEL_SESSION"):
-                journal.record(attempt, "travel_pay", "not_sent",
-                               error=getattr(e, "result_code", ""))
-                return ("ОПЛАТА НЕ ОТПРАВЛЕНА: нет web-сессии travel для подписи "
-                        "(session/link мост не подключён). Деньги НЕ двигались, "
-                        "билет НЕ оформлен. Подпись готова — не хватает travel-сессии; "
-                        "оформи авиабилет в приложении. Детали: travel_link_session().")
+            # The signing session is minted through the session-link bridge BEFORE the
+            # pay POST. If that mint refuses — no SSO_SESSION, the SSO lapsed, a
+            # non-CLIENT level, the token/authorize/code legs — the request was NEVER
+            # sent: a clean refusal, not an unknown outcome, so it must not read as
+            # «билет мог выписаться». flight_pay re-tags every mint-time failure to a
+            # TRAVEL_LINK_* code (its dependencies raise codes like invalid_grant /
+            # INSUFFICIENT_PRIVILEGES that this list would otherwise miss), so the
+            # prefix match catches them all; the two NO_* codes are raised directly.
+            code = getattr(e, "result_code", "")
+            if code.startswith("TRAVEL_LINK") or code in (
+                    "NO_SSO_SESSION", "NO_LINK_TOKEN"):
+                journal.record(attempt, "travel_pay", "not_sent", error=code)
+                return ("ОПЛАТА НЕ ОТПРАВЛЕНА: не удалось собрать web-сессию travel "
+                        f"для подписи ({_err(e)}). Деньги НЕ двигались, билет НЕ "
+                        "оформлен. Если сессия банка активна — попробуй refresh_session() "
+                        "и повтори; иначе оформи авиабилет в приложении.")
             journal.record(attempt, "travel_pay", "unknown",
                            error=f"{type(e).__name__}: {_cut(redact_text(str(e)), 120)}")
             return (f"ИСХОД НЕИЗВЕСТЕН: {_err(e)}\nЗапрос ушёл — билет мог "

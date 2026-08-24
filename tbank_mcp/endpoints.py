@@ -1449,6 +1449,13 @@ BUILTIN_ENDPOINTS.update({
     "flight_history": {"method": "GET", "host": "https://www.tbank.ru",
                        "path": "/api/travel/flight/history/getSearchHistoryBySession",
                        "params": {}, **_TRAVEL_MB},
+    # The first leg of the session-link bridge: a plain mobile-BFF read (Bearer +
+    # sessionid, on api.t-bank-app.ru with the ordinary native params) that mints a
+    # one-time link_token. That token is handed to www.tbank.ru/session/link/authorize,
+    # which trades it — over the SSO cookie — for the WEB travel session that keys the
+    # travel_pay signature. host omitted ⇒ the mobile base_url. See client.travel_link_session.
+    "travel_link_auth_token": {"method": "GET", "path": "/v1/travel_link_auth_token",
+                               "params": {}},
 })
 
 

@@ -334,6 +334,19 @@ TRAVEL_SIG_HEADER = "X-Api-Signature"
 TPAY_WEBVIEW_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) "
                    "AppleWebKit/605.1.15 (KHTML, like Gecko) TCSMB")
 
+# The session-link bridge identifies the calling web app to session/link/authorize.
+# These three are the exact query the captured flights webview sends (appName
+# travelaviabook, its build, the web origin triple); the bank echoes them into the
+# state JWT it hands to id.tbank.ru, so a mismatch would mint a token for the wrong
+# app context. theme=context rides along and is cosmetic.
+TRAVEL_LINK_APP = "travelaviabook"
+TRAVEL_LINK_APP_VERSION = "2.244.0"
+TRAVEL_LINK_ORIGIN = "web,ib5,platform"
+# The travel sessionId carries a ~11-minute CLIENT portal window (check_auth reports
+# portalSessionExpiresInSeconds≈659). Re-mint well inside it rather than discovering
+# it lapsed at the moment of paying — the bridge is free, a stale-session pay is not.
+TRAVEL_PORTAL_TTL = 480.0
+
 
 def travel_api_signature(session_id: str, operation: str, query: dict | None,
                          body: str) -> str:
@@ -1105,6 +1118,7 @@ class MobileSession:
     sso_login_cookie: str = ""      # the LOGIN (auth_code) cookie set incl. SSO_SESSION (long-lived) — for silent re-login
     auth_step_fingerprint: str = "" # the static fingerprint blob sent at auth/step (silent re-login)
     travel_session_id: str = ""     # the WEB travel session id (session-link bridge); key for the travel_pay x-api-signature
+    travel_session_at: float = 0.0  # when it was minted (unix seconds) — the portal window is ~11 min
     tmsg_session_id: str = ""       # messenger JWT cookie (tm.t-bank-app.ru)
     trains_cookie: str = ""         # rail host cookie (trains.t-bank-app.ru)
     trains_cookie_at: float = 0.0   # when it was minted (unix seconds)
@@ -5044,19 +5058,49 @@ class MobileSession:
         flights, this call both books and charges.
 
         The travel gateway checks an x-api-signature (httpIntegrityCheck) that this
-        client now reproduces: the request is built by _travel_pay_request, signed
-        with the TRAVEL web-session id, and sent on the web-session cookie (NOT the
-        mobile Bearer). `travel_session_id`/`cookie` come from the session-link
-        bridge (travel_link_session); pass them explicitly to override.
+        client reproduces: the request is built by _travel_pay_request, signed with
+        the TRAVEL web-session id, and sent on the web-session cookie (NOT the mobile
+        Bearer). The signing session comes from the session-link bridge — minted here
+        via travel_link_session() when not supplied. That mint happens BEFORE anything
+        is posted, so a bridge failure (no SSO_SESSION, SSO lapsed, non-CLIENT level)
+        raises with a TRAVEL_LINK_* / NO_SSO_SESSION code and nothing is charged; pass
+        `travel_session_id`/`cookie` explicitly to override the mint.
 
         Returns the whole envelope, not `payload`. `status` is "Working" while the
         booking runs and `detachKey` IS the orderId, while `payload` is an empty
         object until it finishes — the ordinary unwrap would lose both.
         """
-        sid = travel_session_id or self.travel_session_id
-        if not sid:
-            raise TbankApiError("NO_TRAVEL_SESSION",
-                "нет travel-сессии для подписи оплаты — сначала travel_link_session().")
+        if travel_session_id:
+            sid = travel_session_id
+        else:
+            # The mint runs ENTIRELY before the pay POST, so ANY failure here means
+            # nothing was sent. That must reach the caller as a pre-send refusal
+            # («ОПЛАТА НЕ ОТПРАВЛЕНА / nothing charged»), never as an «unknown outcome».
+            # travel_link_session raises explicit pre-send codes (TRAVEL_LINK_*,
+            # NO_SSO_SESSION, NO_LINK_TOKEN) — but its dependencies do NOT: the CLIENT
+            # re-mint raises SessionExpired('invalid_grant'), the token read raises
+            # HTTP_401/INSUFFICIENT_PRIVILEGES, an unreadable 200 raises HTTP_200 — all
+            # TbankApiError subclasses with codes the flight_book handler does not
+            # whitelist. So re-tag anything that is not already an explicit pre-send
+            # code to TRAVEL_LINK_MINT_FAILED (kept under the TRAVEL_LINK prefix the
+            # handler routes to «not sent»), preserving the original code in the text.
+            try:
+                sid = self.travel_link_session()
+            except TbankApiError as e:
+                code = getattr(e, "result_code", "")
+                if code.startswith("TRAVEL_LINK") or code in (
+                        "NO_SSO_SESSION", "NO_LINK_TOKEN"):
+                    raise
+                raise TbankApiError(
+                    "TRAVEL_LINK_MINT_FAILED",
+                    "не удалось собрать travel-сессию для подписи "
+                    f"({code or 'ошибка'}: {_excerpt(getattr(e, 'message', str(e)), 100)})"
+                ) from e
+            except Exception as e:
+                raise TbankApiError(
+                    "TRAVEL_LINK_FAILED",
+                    f"не удалось собрать travel-сессию для подписи: "
+                    f"{_excerpt(str(e), 120)}") from e
         ck = cookie or self._wide_cookie()
         body_str = json.dumps(body, ensure_ascii=False, separators=(",", ":"))
         url, headers = self._travel_pay_request(sid, ck, body_str)
@@ -5083,28 +5127,119 @@ class MobileSession:
             return {}
         return data if isinstance(data, dict) else {}
 
-    def travel_link_session(self) -> str:
+    def travel_link_auth_token(self) -> str:
+        """The one-time link_token that opens the session-link bridge.
+
+        A plain mobile-BFF read (Bearer + sessionid) on api.t-bank-app.ru: it hands
+        back {"token": "<30-char>"} which session/link/authorize then trades — over
+        the SSO cookie — for the WEB travel session. The token is single-use, so it
+        is fetched fresh for every mint, never stored.
+
+        This endpoint VALIDATES the sessionid, so it needs CLIENT level — outside the
+        ~11-minute portal window the same Bearer reads back ANONYMOUS and it answers
+        INSUFFICIENT_PRIVILEGES. ensure_client_session() re-mints if the window lapsed,
+        the same guard documents()/session_status() use."""
+        self.ensure_client_session()
+        data = self._call_read("travel_link_auth_token") or {}
+        token = str(data.get("token") or "")
+        if not token:
+            raise TbankApiError(
+                "NO_LINK_TOKEN",
+                "банк не выдал link_token для travel-сессии — проверь сессию (keepalive)")
+        return token
+
+    def travel_link_session(self, *, force: bool = False) -> str:
         """Mint the WEB travel session id that keys the travel_pay signature.
 
-        NOT wired to the live flow. The captured bridge is a full OAuth/PKCE SSO
-        link, and shipping it un-run on the money path's auth would be a guess:
+        Drives the session-link SSO bridge headless. NONE of the four legs moves
+        money — it is pure authorization — which is why this, unlike flight_pay, is
+        safe to run live:
 
-          1. GET www.tbank.ru/api/common/v1/session/link/authorize
-               ?appName=travelaviabook&link_token=<T>&origin=web,ib5,platform&theme=
-             (link_token from the travel_link_auth_token endpoint) → 303 to id.tbank.ru
-          2. GET id.tbank.ru/auth/authorize
-               ?auth_token=<A>&client_id=&code_challenge=&code_challenge_method=&
-                redirect_uri=&response_type=&state=<JWT> → 303 back with ?code=
-          3. GET www.tbank.ru/api/common/v1/session/link/check_auth/?code=&state=
-             → HTML postMessage {"sessionId":"…","accessLevel":"CLIENT"} (see
-             _parse_link_session, which IS reproduced against the capture).
+          1. travel_link_auth_token()  — mobile Bearer → a one-time link_token.
+          2. GET www.tbank.ru/api/common/v1/session/link/authorize
+               ?origin=web,ib5,platform&appName=travelaviabook&appVersion=…&theme=context
+               &link_token=<T>  → 303 to id.tbank.ru/auth/authorize?state=<JWT>&
+               client_id=portal-api-link&code_challenge=…&code_challenge_method=S256&
+               auth_token=<T>. The bank BUILDS that whole redirect — the PKCE
+               code_verifier for portal-api-link lives on its side, never ours — and
+               sets an api_prefix_<n> cookie that ties the exchange to this attempt.
+          3. GET that id.tbank.ru URL on the SSO login cookie (SSO_SESSION + friends):
+               a prompt-less authorise, no OTP, no screen → 303 back to
+               www.tbank.ru/api/common/v1/session/link/check_auth/?code=&state=&session_state=.
+          4. GET check_auth on the same jar (it carries api_prefix + the SSO cookies)
+               → HTML window.parent.postMessage({"sessionId":…,"accessLevel":"CLIENT",…}).
 
-        Until step 1–2 are captured/implemented live, pass the sessionId explicitly to
-        flight_pay(travel_session_id=…, cookie=…) or set self.travel_session_id.
-        """
-        raise TbankApiError("TRAVEL_LINK_NOT_WIRED",
-            "мост travel-сессии (session/link OAuth) не реализован вживую — передай "
-            "travel_session_id и cookie в flight_pay явно. См. docstring travel_link_session.")
+        One requests jar seeded with the SSO cookies at .tbank.ru drives all three web
+        legs, so the api_prefix cookie from (2) and the SSO_SESSION from (3) carry to
+        (4) on their own. Redirects are followed leg by leg (allow_redirects=False) so
+        each Location is read rather than chased into a cookie race.
+
+        The result is cached with a timestamp and reused while inside the ~11-minute
+        portal window (TRAVEL_PORTAL_TTL); force=True re-mints regardless."""
+        if not self.sso_login_cookie:
+            raise TbankApiError(
+                "NO_SSO_SESSION",
+                "нет SSO_SESSION — travel-сессию не собрать; выполни login(phone)+confirm_otp(otp)")
+        if (not force and self.travel_session_id
+                and time.time() - self.travel_session_at < TRAVEL_PORTAL_TTL):
+            return self.travel_session_id
+
+        link_token = self.travel_link_auth_token()
+        head = {"User-Agent": self.TPAY_WEBVIEW_UA,
+                "Accept": ("text/html,application/xhtml+xml,application/xml;"
+                           "q=0.9,*/*;q=0.8"),
+                "Referer": "https://www.tbank.ru/"}
+        with self._fresh_jar() as jar:
+            # The SSO cookie values are valid on .tbank.ru (id.tbank.ru accepts them —
+            # _tpay_sso_code sends the same set there); seeding them on the jar lets it
+            # carry them to both www.tbank.ru and id.tbank.ru without a manual header.
+            for part in self.sso_login_cookie.split(";"):
+                if "=" in part:
+                    k, v = part.strip().split("=", 1)
+                    if k:
+                        jar.cookies.set(k, v, domain=".tbank.ru")
+
+            authorize = jar.get(
+                "https://www.tbank.ru/api/common/v1/session/link/authorize",
+                params={"origin": TRAVEL_LINK_ORIGIN, "appName": TRAVEL_LINK_APP,
+                        "appVersion": TRAVEL_LINK_APP_VERSION, "theme": "context",
+                        "link_token": link_token},
+                headers=head, timeout=30, allow_redirects=False)
+            id_url = authorize.headers.get("Location") or ""
+            if "id.tbank.ru" not in id_url:
+                raise TbankApiError(
+                    "TRAVEL_LINK_NO_AUTHORIZE",
+                    f"session/link/authorize не увёл на SSO (HTTP {authorize.status_code}) — "
+                    "сессия могла истечь, попробуй refresh_session()")
+
+            sso = jar.get(id_url, headers=head, timeout=30, allow_redirects=False)
+            check_url = sso.headers.get("Location") or ""
+            if "check_auth" not in check_url:
+                raise TbankApiError(
+                    "TRAVEL_LINK_NO_CODE",
+                    f"SSO не вернул code для travel-сессии (HTTP {sso.status_code}) — "
+                    "сессия могла истечь, попробуй refresh_session()")
+
+            done = jar.get(check_url, headers=head, timeout=30, allow_redirects=False)
+            info = self._parse_link_session(done.text or "")
+
+        sid = str(info.get("sessionId") or "")
+        if not sid:
+            raise TbankApiError(
+                "TRAVEL_LINK_NO_SESSION",
+                "check_auth не вернул sessionId — travel-сессию собрать не удалось")
+        level = str(info.get("accessLevel") or "")
+        if level != "CLIENT":
+            # An ANONYMOUS travel session would sign a pay the gateway then rejects —
+            # refuse now, while nothing has been charged, rather than at the money call.
+            raise TbankApiError(
+                "TRAVEL_LINK_NOT_CLIENT",
+                f"travel-сессия пришла с уровнем {level or 'неизвестен'!r}, нужен CLIENT — "
+                "обнови сессию (refresh_session) и повтори")
+        self.travel_session_id = sid
+        self.travel_session_at = time.time()
+        self._persist()
+        return sid
 
     def flight_pay_result(self) -> dict:
         """Poll the in-flight payment. Same reason for the raw envelope: "Working"
