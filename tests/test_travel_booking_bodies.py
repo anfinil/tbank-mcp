@@ -945,6 +945,87 @@ def test_flight_pay_result_polls_the_web_session_not_mobile():
         print("  flight_pay_result: web-session poll pinned (capture absent — cross-check skipped)")
 
 
+def test_co_passenger_latin_comes_from_the_bank_not_cyrillic():
+    """A ticket must carry Latin, and the app gets it by loading the saved contact's
+    stored spelling — never by transliterating. So an explicit co-passenger typed with
+    only Cyrillic must be filled from documents() (matched by passport number); and if
+    the bank has no Latin for them, the booking refuses at the wire rather than sending
+    Cyrillic (a boarding refusal)."""
+    import json as _json
+    from tbank_mcp.client import TbankApiError
+
+    # All values synthetic (round, obviously fake), same shape as the real store.
+    class DocS:
+        def identity_documents(self):
+            return {"RusNationalID": [
+                {"value": {"serial": {"value": "1234"}, "number": {"value": "567890"},
+                           "person": {"firstNameEn": {"value": "MARIA"},
+                                      "lastNameEn": {"value": "PETROVA"},
+                                      "middleNameEn": {"value": "IVANOVNA"},
+                                      "birthDate": {"value": "1992-02-02"}}}}]}
+
+        def identity_brief(self):
+            return {}
+
+    # Cyrillic-only co-passenger whose passport IS in the store → filled with bank Latin.
+    spec = _json.dumps([{"first": "Мария", "last": "Петрова", "middle": "Ивановна",
+                         "birthDate": "1992-02-02", "number": "1234567890", "sex": "female"}])
+    people = server._passengers(DocS(), spec, need_latin=True)
+    check(people[0]["firstEn"] == "MARIA" and people[0]["lastEn"] == "PETROVA",
+          f"co-passenger Latin must come from the bank: {people[0]}")
+    block = server._person_block(people[0])
+    check(block["name"] == "MARIA" and block["surname"] == "PETROVA",
+          f"the ticket must carry the bank's Latin: {block['name']}/{block['surname']}")
+
+    # Cyrillic-only co-passenger NOT in the store → _passengers leaves Latin empty,
+    # _person_block refuses at the wire.
+    spec2 = _json.dumps([{"first": "Иван", "last": "Смирнов", "birthDate": "1990-01-01",
+                          "number": "1234567891", "sex": "male"}])
+    p2 = server._passengers(DocS(), spec2, need_latin=True)
+    check(not p2[0]["firstEn"], "no store match → Latin stays empty at _passengers level")
+    try:
+        server._person_block(p2[0])
+        failures.append("a Cyrillic-only passenger with no bank Latin was accepted")
+    except TbankApiError as e:
+        check(e.result_code == "PASSENGER_NO_LATIN",
+              f"must refuse a passenger with no Latin: {e.result_code}")
+
+    # An explicitly-typed Latin is honored as-is, without touching the store.
+    spec3 = _json.dumps([{"first": "Иван", "last": "Смирнов", "firstEn": "IVAN",
+                          "lastEn": "SMIRNOV", "birthDate": "1990-01-01",
+                          "number": "1234567891", "sex": "male"}])
+    block3 = server._person_block(server._passengers(DocS(), spec3, need_latin=True)[0])
+    check(block3["name"] == "IVAN" and block3["surname"] == "SMIRNOV",
+          "explicit Latin must be used as-is")
+
+    # A Cyrillic PATRONYMIC must never ship on an otherwise-Latin ticket: with a Latin
+    # first/last but no Latin middle, middle_name is empty, not the Cyrillic fallback.
+    blk = server._person_block({"firstEn": "IVAN", "lastEn": "SMIRNOV",
+                                "first": "И", "last": "С", "middle": "Иванович",
+                                "middleEn": "", "birthDate": "1990-01-01", "number": "1"})
+    check(blk["middle_name"] == "",
+          f"a Cyrillic patronymic must be dropped, not shipped: {blk['middle_name']!r}")
+
+    # The barrier checks SCRIPT, not just presence: Cyrillic typed into firstEn/lastEn
+    # is as wrong as a missing one — refuse, do not ship it.
+    try:
+        server._person_block({"firstEn": "Иван", "lastEn": "SMIRNOV",
+                              "first": "И", "last": "С", "birthDate": "1990-01-01",
+                              "number": "1"})
+        failures.append("Cyrillic in firstEn was accepted onto a ticket")
+    except TbankApiError as e:
+        check(e.result_code == "PASSENGER_NO_LATIN",
+              f"Cyrillic in an En field must be refused: {e.result_code}")
+
+    # Rail must NOT trigger Latin resolution (need_latin defaults False): a Cyrillic-only
+    # co-passenger passes through _passengers untouched, no store read required.
+    rail = server._passengers(DocS(), _json.dumps(
+        [{"first": "Иван", "last": "Смирнов", "birthDate": "1990-01-01", "number": "1"}]))
+    check(rail[0]["first"] == "Иван" and not rail[0]["firstEn"],
+          "rail passengers stay Cyrillic and skip Latin resolution")
+    print("  passengers: Latin from bank; Cyrillic name/patronymic/En refused; rail untouched")
+
+
 def test_pay_result_detail_reads_both_envelope_shapes():
     """A non-Ok pay/result must be diagnosable. _envelope yields two shapes: a JSON
     error (message in errorMessage/payload.message, and NO `text` key) and a non-JSON
@@ -1096,6 +1177,7 @@ def main():
                test_travel_link_bridge_drives_the_captured_legs,
                test_flight_pay_with_preset_session_skips_the_bridge,
                test_flight_pay_result_polls_the_web_session_not_mobile,
+               test_co_passenger_latin_comes_from_the_bank_not_cyrillic,
                test_pay_result_detail_reads_both_envelope_shapes,
                test_flight_pay_mint_failure_never_reads_as_unknown,
                test_travel_link_session_caches_within_window,

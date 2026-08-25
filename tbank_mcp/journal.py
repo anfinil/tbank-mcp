@@ -8,7 +8,7 @@ Why: ``order/create`` is a real-money POST with no backend idempotency key we ca
 rely on. If the call times out or returns no ``orderId`` we CANNOT prove the
 backend didn't create the order — so an automatic retry could place a DUPLICATE.
 This journal records each attempt's progress; after an UNKNOWN result we block the
-auto-retry and point the user to ``grocery_attempts()`` for reconciliation.
+auto-retry and point the user to ``payment_attempts()`` for reconciliation.
 
 Statuses (per event): ``started | delivery_ready | order_posting | order_posted | paid | failed | unknown``
   * ``paid``                       → done; block (already ordered + paid)

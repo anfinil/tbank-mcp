@@ -226,7 +226,7 @@ Russian and so is the person reading the answer.
 | **Reads** | `list_accounts`, `list_operations`, `spending_categories`, `operations_histogram`, `get_data` |
 | **Cards & accounts** | `list_cards`, `card_limits`, `card_requisites`, `card_operations`, `account_requisites` |
 | **Documents** | `documents`, `bank_documents`, `insurance_policies`, `payment_receipt` |
-| **Grocery** | `grocery_stores`, `grocery_search`, `grocery_plan_order`, `grocery_add_to_cart`, `grocery_set_cart`, `grocery_cart`, `grocery_checkout`, `grocery_attempts`, `grocery_order_status`, `grocery_order_cancel` |
+| **Grocery** | `grocery_stores`, `grocery_search`, `grocery_plan_order`, `grocery_add_to_cart`, `grocery_set_cart`, `grocery_cart`, `grocery_checkout`, `payment_attempts`, `grocery_order_status`, `grocery_order_cancel` |
 | **Nutrition** | `grocery_good_info`, `grocery_rank` |
 | **Orders** | `orders`, `order_details`, `travel_order_details` |
 | **Afisha** | `afisha_catalog`, `afisha_places`, `place_schedule`, `place_info` |

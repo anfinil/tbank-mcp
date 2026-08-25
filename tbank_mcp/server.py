@@ -106,7 +106,7 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "grocery_good_info": ("Карточка товара и КБЖУ", READ),
     "grocery_plan_order": ("Планирование заказа", READ),
     "grocery_cart": ("Содержимое корзины", READ),
-    "grocery_attempts": ("Попытки оформления", READ),
+    "payment_attempts": ("Попытки оплаты", READ),
     "grocery_order_status": ("Статус заказа", READ),
     "grocery_add_to_cart": ("Добавление в корзину", WRITE),
     "grocery_set_cart": ("Перезапись корзины", WRITE),
@@ -1674,7 +1674,7 @@ async def grocery_checkout(app_id: str = "", point_id: str = "", force: bool = F
     расхождение с суммой на кнопке (допуск 0.01 ₽) отменяет чекаут ДО создания заказа.
 
     При неопределённом результате (заказ мог создаться) повтор БЛОКИРУЕТСЯ —
-    сначала grocery_attempts() и проверь заказ в приложении. force=True — только если
+    сначала payment_attempts() и проверь заказ в приложении. force=True — только если
     пользователь ЯВНО подтвердил, что прошлого заказа нет; кнопка при повторе
     показывается снова.
 
@@ -1843,7 +1843,7 @@ def _do_grocery_checkout(app_id: str, point_id: str, force: bool,
             return (f"[store appId={app_id} pointId={point_id}] BLOCKED: предыдущая попытка checkout для "
                     f"этой корзины завершилась неопределённо (status={last.get('status')}, "
                     f"attempt={last.get('attempt_id')}, order={last.get('order_id') or '-'}). Заказ мог быть "
-                    f"создан/оплачен — сначала grocery_attempts() и проверь заказ в приложении. "
+                    f"создан/оплачен — сначала payment_attempts() и проверь заказ в приложении. "
                     f"Принудительный повтор (force=True) — только если пользователь подтвердил отсутствие заказа.")
         # 3. A quote posts nothing, so it gets NO journal attempt. Journal attempts are
         #    keyed by cart hash and the NEWEST one decides whether a retry is blocked —
@@ -1887,7 +1887,7 @@ def _do_grocery_checkout(app_id: str, point_id: str, force: bool,
                     + f" (attempt {attempt_id})")
         except CheckoutUnknown as e:
             return (f"[store appId={app_id} pointId={point_id}] UNKNOWN RESULT (attempt {attempt_id}): {e} "
-                    f"Повтор ЗАБЛОКИРОВАН — заказ мог создаться. Проверь grocery_attempts() / grocery_order_status() и заказ в приложении.")
+                    f"Повтор ЗАБЛОКИРОВАН — заказ мог создаться. Проверь payment_attempts() / grocery_order_status() и заказ в приложении.")
         except CheckoutError as e:
             journal.record(attempt_id, "checkout", "failed", error=str(e)[:160])
             obs.emit("checkout", attempt_id=attempt_id, result="failed",
@@ -1914,48 +1914,65 @@ def _do_grocery_checkout(app_id: str, point_id: str, force: bool,
                 journal.record(attempt_id, "checkout", "unknown", error=err_msg)
                 return (f"[store appId={app_id} pointId={point_id}] UNKNOWN RESULT (attempt {attempt_id}, "
                         f"runtime {type(e).__name__}). Дошли до order/create? Повтор ЗАБЛОКИРОВАН — "
-                        f"проверь grocery_attempts()/diagnostics() и заказ в приложении. ({err_msg})")
+                        f"проверь payment_attempts()/diagnostics() и заказ в приложении. ({err_msg})")
             journal.record(attempt_id, "checkout", "failed", error=err_msg)
             return _err(e)
 
+# The attempt ledger has ONE reader-facing shape, shared by payment_attempts() and the
+# diagnostics() summary so the two cannot drift into different formats or truncations.
+_ATTEMPT_TAIL_FIELDS = ("error", "payment_status", "detail")
+_ATTEMPT_TAIL_MAX = 90
+
+
+def _merged_attempts() -> list[dict]:
+    """Recent payment attempts, one dict per attempt, newest first.
+
+    Merges the RAW journal stream: an attempt writes app_id/amount on its init record
+    and status/step/order on later ones, so folding every event keeps them together.
+    journal.recent() would already have collapsed to the last event and dropped the
+    init fields — which is why the sum and store id once failed to render."""
+    from . import journal
+    merged: dict = {}
+    for e in journal._events():
+        aid = e.get("attempt_id")
+        if aid:
+            merged.setdefault(aid, {"attempt_id": aid}).update(
+                {k: v for k, v in e.items() if v not in (None, "")})
+    return list(merged.values())[::-1]
+
+
+def _render_attempt(a: dict) -> str:
+    """One attempt as a single line — the format both readers share.
+
+    The tail carries whatever the attempt recorded about its outcome, `detail`
+    included (the pay/result message the flight path saves lives there)."""
+    bits = [f"- {a['attempt_id']}", a.get("status", "?"), a.get("step", "?")]
+    if a.get("app_id"):
+        bits.append(f"appId={a['app_id']}")
+    if a.get("amount") not in (None, ""):
+        bits.append(f"{a['amount']}₽")
+    bits.append(f"order={a.get('order_id') or '-'}")
+    tail = " ".join(str(a[k]) for k in _ATTEMPT_TAIL_FIELDS if a.get(k))
+    if tail:
+        bits.append(_cut(tail, _ATTEMPT_TAIL_MAX))
+    return " | ".join(bits)
+
+
 @mcp.tool()
-def grocery_attempts(limit: int = 15) -> str:
-    """Недавние попытки grocery checkout (read-only) — для reconciliation после
-    неопределённого результата (UNKNOWN). Показывает status/order_id/attempt_id/sum.
+def payment_attempts(limit: int = 15) -> str:
+    """Недавние попытки ОПЛАТЫ (read-only) — для reconciliation после неопределённого
+    результата (UNKNOWN). Общий реестр: продукты (checkout), авиабилеты и прочие
+    денежные операции, что ведут журнал попыток, — не только grocery. Показывает
+    status/step/order_id/attempt_id/sum и детали ответа. Это же хранилище блокирует
+    повторное списание, пока исход не подтверждён. Более широкая лента событий —
+    diagnostics(), она же показывает и эти попытки одним списком.
     limit — сколько последних попыток показать (0 = все); в шапке видно общее число."""
     try:
-        from . import journal
-        rows = journal.recent(0)
-        if not rows:
-            return "Попыток checkout пока не было."
-        # One row per ATTEMPT, not per journal line. The journal writes an `init`
-        # record carrying app_id/amount and then a progress record per step carrying
-        # only what that step knew — so printing the raw tail showed «appId=None ?₽»
-        # for every step after the first, i.e. for almost every line.
-        merged: dict = {}
-        for r in rows:
-            aid = r.get("attempt_id")
-            if not aid:
-                continue
-            cur = merged.setdefault(aid, {"attempt_id": aid})
-            cur.update({k: v for k, v in r.items() if v not in (None, "")})
-        def render(a):
-            bits = [f"- {a['attempt_id']}", a.get("status", "?"), a.get("step", "?")]
-            if a.get("app_id"):
-                bits.append(f"appId={a['app_id']}")
-            if a.get("amount") not in (None, ""):
-                bits.append(f"{a['amount']}₽")
-            bits.append(f"order={a.get('order_id') or '-'}")
-            tail = (a.get("error") or a.get("payment_status") or "")
-            if tail:
-                bits.append(_cut(tail, 60))
-            return " | ".join(bits)
-        # Newest first, through _rows_out: the bare [-15:] tail printed 15 attempts
-        # with no count — indistinguishable from «15 attempts ever».
-        items = list(merged.values())[::-1]
-        return _rows_out(items, render, limit=limit, total=len(items),
-                         order_note="новые сверху",
-                         header="Попытки checkout")
+        items = _merged_attempts()
+        if not items:
+            return "Попыток оплаты пока не было."
+        return _rows_out(items, _render_attempt, limit=limit, total=len(items),
+                         order_note="новые сверху", header="Попытки оплаты")
     except Exception as e:
         return _err(e)
 
@@ -1990,7 +2007,7 @@ def grocery_order_status(order_id: str, app_id: str = "") -> str:
         if not order.get("id") and not order.get("status"):
             return (f"Заказ {order_id} не найден на бэкенде (банк не вернул по нему "
                     f"данных). Это НЕ «создан и не оплачен» — сверься с orders() и "
-                    f"grocery_attempts(); если заказа нет, попытка не прошла.")
+                    f"payment_attempts(); если заказа нет, попытка не прошла.")
         cart = order.get("cart") or {}
         app = order.get("application") or {}
         status = order.get("status") or "?"
@@ -2022,7 +2039,7 @@ def grocery_order_cancel(order_id: str, app_id: str = "") -> str:
     одному orderId. Вердикт — payload.status ("Success"/"Failed" + code;
     605 = заказ уже отменён), внешний "status":"Ok" успехом НЕ является.
 
-    app_id (из grocery_stores() или grocery_attempts()) не обязателен, но с ним
+    app_id (из grocery_stores() или payment_attempts()) не обязателен, но с ним
     тул сразу перечитает заказ и покажет фактический статус — до перечитывания
     «принято» ещё не значит CANCELED. Если тул вернул ошибку, статус заказа
     НЕИЗВЕСТЕН — grocery_order_status() или приложение."""
@@ -2059,19 +2076,35 @@ def _do_grocery_order_cancel(order_id: str, app_id: str = "") -> str:
 
 # ── DIAGNOSTICS ─────────────────────────────────────────────
 
+def _recent_attempts_block(limit: int = 8) -> str:
+    """A compact recent-attempts summary folded into diagnostics() so it is the SINGLE
+    place to look after an unknown outcome — the operator need not know payment_attempts()
+    exists separately. Same merge and same line format as payment_attempts(); '' when
+    there are none."""
+    try:
+        items = _merged_attempts()[:limit]
+    except Exception:
+        return ""
+    if not items:
+        return ""
+    header = f"── Попытки оплаты (последние {len(items)}; все — payment_attempts()) ──"
+    return "\n".join([header] + [_render_attempt(a) for a in items])
+
+
 @mcp.tool()
 def diagnostics(limit: int = 40) -> str:
-    """Недавние redacted-события (checkout delivery/order/payment + refresh сессии)
-    для диагностики — БЕЗ секретов. reconstruct попытку / найти последний
-    подтверждённый шаг. Источник: ~/.local/share/tbank-mcp/events.jsonl.
+    """Единая точка диагностики — БЕЗ секретов. Недавние redacted-события (checkout
+    delivery/order/payment, оплата авиа, refresh сессии) ПЛЮС реестр попыток оплаты
+    одним списком, чтобы после неопределённого исхода смотреть в одном месте.
+    reconstruct попытку / найти последний подтверждённый шаг.
+    Источник событий: ~/.local/share/tbank-mcp/events.jsonl; попыток — attempts.jsonl
+    (полный вид — payment_attempts()).
 
     limit — сколько ПОСЛЕДНИХ событий показать (0 = все); шапка называет общее
     число, так что видно, сколько осталось за кадром."""
     try:
         from . import observability as obs
         rows = obs.recent(limit)
-        if not rows:
-            return "Событий пока нет (events.jsonl пуст)."
         lines = []
         for r in rows:
             parts = [f"step={r.get('step')}", f"blame={r.get('blame', '-')}"]
@@ -2109,10 +2142,13 @@ def diagnostics(limit: int = 40) -> str:
         # docstring — 120 events rendered as 40 lines that looked like all of them.
         # obs.recent() already applied the limit, so the rendering limit is 0 here
         # and the header carries the real count.
-        return _rows_out(lines, lambda l: l, limit=0, total=obs.total(),
-                         header="События", order_note="новые снизу",
-                         more_hint=f"Показаны последние {len(lines)}. "
-                                   f"diagnostics(limit=0) — все.")
+        events_out = (_rows_out(lines, lambda l: l, limit=0, total=obs.total(),
+                                header="События", order_note="новые снизу",
+                                more_hint=f"Показаны последние {len(lines)}. "
+                                          f"diagnostics(limit=0) — все.")
+                      if lines else "Событий пока нет (events.jsonl пуст).")
+        attempts_out = _recent_attempts_block()
+        return events_out + ("\n\n" + attempts_out if attempts_out else "")
     except Exception as e:
         return _err(e)
 
@@ -5143,8 +5179,62 @@ def _reject_minor(person: dict, who: str) -> None:
             f"приложении.")
 
 
-def _passengers(s, spec: str) -> list[dict]:
+def _resolve_latin(s, number: str, birth: str):
+    """The bank's stored Latin spelling for a co-passenger, matched by passport number.
+
+    A ticket carries Latin, and the travel checkout gets it the same way the app does:
+    it loads a saved contact from the prefill store and uses that contact's stored
+    firstNameEn/lastNameEn — it never transliterates. `identity_documents()` is that
+    store (it holds relatives' documents too), so a co-passenger typed in with only
+    Cyrillic can still be given the RIGHT Latin, the passport's own. Matches the
+    passport NUMBER (serial+number joined in storage), with birthDate as a guard.
+    Returns (firstEn, lastEn, middleEn), or None when the store has no Latin document
+    for them — the caller then refuses rather than putting Cyrillic on a ticket."""
+    want_num = re.sub(r"\D", "", str(number or ""))
+    want_bd = str(birth or "")[:10]
+    if not want_num:
+        return None
+    try:
+        docs = s.identity_documents() or {}
+    except Exception:
+        # Best-effort: a prefill hiccup must never break a booking. No Latin resolved
+        # → _person_block refuses at the wire (flights), or it is ignored (rail).
+        return None
+
+    def val(node, *path):
+        cur = node
+        for k in path:
+            cur = (cur or {}).get(k) or {}
+        return str(cur.get("value") or "") if isinstance(cur, dict) else ""
+
+    for entries in docs.values():
+        for e in (entries or []):
+            joined = re.sub(r"\D", "",
+                            val(e, "value", "serial") + val(e, "value", "number"))
+            if joined != want_num:
+                continue
+            if want_bd and val(e, "value", "person", "birthDate") != want_bd:
+                continue
+            fen = val(e, "value", "person", "firstNameEn")
+            lastEn = val(e, "value", "person", "lastNameEn")
+            if fen and lastEn:
+                return fen, lastEn, val(e, "value", "person", "middleNameEn")
+    return None
+
+
+def _latin_ok(s: str) -> bool:
+    """A name that a Latin-only ticket will accept: real letters, no Cyrillic. Guards
+    both the resolved value and a caller who typed Cyrillic into firstEn/lastEn."""
+    s = str(s or "").strip()
+    return bool(s) and not re.search(r"[^A-Za-z '\-]", s)
+
+
+def _passengers(s, spec: str, need_latin: bool = False) -> list[dict]:
     """Passengers for a booking: "me" (the default) or explicit JSON.
+
+    need_latin=True (flights) resolves a co-passenger's Latin from the bank when the
+    caller typed only Cyrillic; rail leaves it False — rail tickets use Cyrillic and
+    never read firstEn/lastEn, so it must not pay for an extra prefill read.
 
     Explicit form — a JSON list of
     {"first","last","middle","birthDate":"YYYY-MM-DD","number","sex":"male|female"},
@@ -5183,11 +5273,20 @@ def _passengers(s, spec: str) -> list[dict]:
                 "BAD_PASSENGERS",
                 f"пассажир {i}: не хватает {', '.join(missing)}")
         _reject_minor(item, f"пассажир {i}")
+        # A ticket needs Latin. If the caller did not type it, take the bank's own
+        # spelling for this passport (same store the app prefills a saved contact
+        # from) rather than transliterating. Left empty when the bank has none —
+        # _person_block is the barrier that then refuses, so nothing Cyrillic ships.
+        firstEn = str(item.get("firstEn") or "").strip()
+        lastEn = str(item.get("lastEn") or "").strip()
+        middleEn = str(item.get("middleEn") or "").strip()
+        if need_latin and not (firstEn and lastEn):
+            hit = _resolve_latin(s, str(item["number"]), item["birthDate"])
+            if hit:
+                firstEn, lastEn, middleEn = hit
         out.append({"first": item["first"], "last": item["last"],
                     "middle": item.get("middle") or "",
-                    "firstEn": item.get("firstEn") or "",
-                    "lastEn": item.get("lastEn") or "",
-                    "middleEn": item.get("middleEn") or "",
+                    "firstEn": firstEn, "lastEn": lastEn, "middleEn": middleEn,
                     "birthDate": item["birthDate"], "number": str(item["number"]),
                     "sex": str(item.get("sex") or "male").lower(),
                     "bonus_card": item.get("bonus_card")})
@@ -6021,11 +6120,27 @@ def flight_seats(offer_id: str, fare: int = 1, max_price: float = 0,
 def _person_block(p: dict) -> dict:
     """One passenger in the flight booking's shape.
 
-    Latin names are what the ticket carries, and they do not have to be
-    transliterated here: the bank stores firstNameEn/lastNameEn alongside the
-    Cyrillic ones, so the value on the ticket is the bank's own spelling. When a
-    caller typed a passenger in without them, their Cyrillic name is sent as-is
-    rather than guessed at — a wrong transliteration is a boarding refusal."""
+    Latin names are what the ticket carries, and they are never transliterated: the
+    bank stores firstNameEn/lastNameEn and the value on the ticket is the bank's own
+    spelling (`_own_passenger` reads it for «me», `_passengers` resolves it for a
+    co-passenger from the same document store). This is the last barrier before the
+    wire: a passenger who reached here with no Latin (or with Cyrillic typed into the
+    En fields) has none in the bank either, and Cyrillic on a ticket is a boarding
+    refusal — so refuse, naming them, rather than send it. The check is script, not
+    just presence: firstEn="Иван" is as wrong as a missing one."""
+    fen = str(p.get("firstEn") or "").strip()
+    len_ = str(p.get("lastEn") or "").strip()
+    if not (_latin_ok(fen) and _latin_ok(len_)):
+        raise TbankApiError(
+            "PASSENGER_NO_LATIN",
+            f"пассажир {p.get('last') or p.get('first') or '?'}: на билет нужна "
+            f"латиница (её нет в банке — documents()), а не кириллица — укажи "
+            f"firstEn/lastEn латиницей в JSON пассажира или оформи билет в приложении.")
+    # The patronymic must be Latin too or absent — a Cyrillic middle_name would ship
+    # Cyrillic on an otherwise-Latin ticket. Many carriers accept no patronymic, so
+    # when the bank has no Latin one we send empty rather than the Cyrillic fallback.
+    men = str(p.get("middleEn") or "").strip()
+    men = men.upper() if _latin_ok(men) else ""
     # bonus_card is null for a passenger without an airline programme and an
     # object for one with it — the capture carries both variants in the same
     # booking, so «always null» would quietly stop the miles from being credited.
@@ -6037,14 +6152,14 @@ def _person_block(p: dict) -> dict:
         card = None
     return {"infant": None,
             "birthdate": p["birthDate"],
-            "name": (p.get("firstEn") or p["first"]).upper(),
-            "surname": (p.get("lastEn") or p["last"]).upper(),
+            "name": fen.upper(),
+            "surname": len_.upper(),
             "sex": "female" if str(p.get("sex", "")).lower().startswith("f") else "male",
             "travel_document": {"number": p["number"], "exp_date": None},
             "passenger_type": "adult",
             "nationality": "RUS",
             "bonus_card": card,
-            "middle_name": (p.get("middleEn") or p.get("middle") or "").upper()}
+            "middle_name": men}
 
 
 def _itinerary_segments(payload: dict) -> list[dict]:
@@ -6143,7 +6258,7 @@ async def flight_book(offer_id: str, fare: int = 1, passengers: str = "me",
     проверки в trips() и приложении, что билет не выписан."""
     try:
         s = _require(); s.ensure_fresh()
-        people = _passengers(s, passengers)
+        people = _passengers(s, passengers, need_latin=True)
         seat_specs = [x.strip() for x in seats.replace(";", ",").split(",") if x.strip()]
         if seat_specs and len(seat_specs) != len(people):
             return (f"Мест {len(seat_specs)}, а пассажиров {len(people)} — "
@@ -6353,7 +6468,7 @@ def _do_flight_book(offer_uuid, people, seat_blocks, checkin_price, seat_sum,
         # Not Ok: persist the HTTP code and a redacted MESSAGE from the pay/result
         # envelope (works for JSON errors too, which carry no `text`) — the first live
         # failure could not be diagnosed because nothing was saved. It lands in BOTH
-        # the journal (grocery_attempts) and events.jsonl (diagnostics), so the pointer
+        # the journal (payment_attempts) and events.jsonl (diagnostics), so the pointer
         # below resolves. A 400 here specifically means «no payment in flight for this
         # session» (nothing charged), but the read alone cannot prove the charge did
         # not land, so the message stays conservative and points at trips()/the app.
@@ -6369,7 +6484,7 @@ def _do_flight_book(offer_uuid, people, seat_blocks, checkin_price, seat_sum,
                 + (f", HTTP {http}" if http else "")
                 + (f", заказ {order_id}" if order_id else "")
                 + "). Деньги могли уйти — проверь trips() и приложение, прежде чем "
-                "покупать снова. Детали — diagnostics() (или grocery_attempts()).")
+                "покупать снова. Детали — diagnostics() (или payment_attempts()).")
     except Exception as e:
         return _err(e)
 

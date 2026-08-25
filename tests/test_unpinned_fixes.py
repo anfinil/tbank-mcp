@@ -130,7 +130,7 @@ def test_the_tool_refuses_the_repeat_and_says_how_to_reconcile():
 
     out = run(Stub(), server._do_grocery_checkout, "204", "5980", False)
     check("BLOCKED" in out, f"the repeat must be refused: {out[:200]!r}")
-    check("grocery_attempts" in out, f"the refusal must name the reconciliation call: {out!r}")
+    check("payment_attempts" in out, f"the refusal must name the reconciliation call: {out!r}")
     check(aid in out, f"the blocking attempt must be identifiable: {out!r}")
     print("  checkout: a repeat of an unknown cart is refused, naming the attempt")
 

@@ -678,7 +678,7 @@ def test_a_broken_tracer_cannot_break_a_payment():
 def test_the_journal_and_the_event_log_redact_too():
     """The trace was the only one of the three log files with a privacy test asserted
     against the FILE. journal._append and observability.emit each redact on a single
-    line, and both are read back by tools the user is told to share (grocery_attempts,
+    line, and both are read back by tools the user is told to share (payment_attempts,
     diagnostics) — so both get the same treatment here.
 
     They differ from the trace in a way that matters: they hand the WHOLE dict to

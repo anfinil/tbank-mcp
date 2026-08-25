@@ -198,7 +198,7 @@ class CheckoutError(RuntimeError):
 
 class CheckoutUnknown(CheckoutError):
     """Checkout result is unknown — an order MAY have been created. Retry must be
-    blocked until the user reconciles (grocery_attempts / checks the app)."""
+    blocked until the user reconciles (payment_attempts / checks the app)."""
 
 
 def _safe_record(attempt_id, step, status, **fields):
@@ -517,7 +517,7 @@ def checkout(session, app_id: str = "", point_id: str = "",
                 raise CheckoutUnknown(
                     f"order/create returned no orderId (http={order_res.get('status')}, "
                     f"code={o_code}) — order may exist, do NOT retry blindly. "
-                    f"See grocery_attempts()/diagnostics() for details.")
+                    f"See payment_attempts()/diagnostics() for details.")
             _log(f"[checkout] order created: id={order_id}")
             _safe_record(attempt_id, "order_create", "order_posted", order_id=order_id)
 

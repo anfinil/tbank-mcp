@@ -627,7 +627,7 @@ back, and what the installment plans are. It changes nothing.
   between order/create and payment is the one place that must never stall.
   If the payment answer is lost, the order is read back once before the result is
   called unknown: a lost response is not an unpaid order. After a genuinely UNKNOWN
-  result the auto-retry is BLOCKED — reconcile via `grocery_attempts` +
+  result the auto-retry is BLOCKED — reconcile via `payment_attempts` +
   `grocery_order_status(order_id)`, and force only after the user confirms no order
   exists.
 - Diagnostics: checkout stages (delivery/order/payment) and session refresh emit
