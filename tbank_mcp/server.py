@@ -6216,6 +6216,18 @@ _FLIGHT_PAY_INFO = {
 }
 
 
+def _pay_result_detail(env: dict) -> str:
+    """A short, redacted, human-useful excerpt of a pay/result envelope, for the log.
+
+    Works for BOTH shapes _envelope produces: a parsed JSON error keeps its message in
+    `errorMessage`/`payload.message` (there is NO `text` key then), and a non-JSON body
+    keeps it in `text`. Reading only `text` — the first version did — dropped the
+    gateway's message on every structured error, which is the common shape."""
+    pl = env.get("payload") if isinstance(env.get("payload"), dict) else {}
+    msg = env.get("errorMessage") or pl.get("message") or env.get("text") or ""
+    return _cut(redact_text(str(msg)), 200)
+
+
 def _do_flight_book(offer_uuid, people, seat_blocks, checkin_price, seat_sum,
                     total, account_id, legs, force: bool = False) -> str:
     """Journal + the one POST that books and charges, then poll for the PNR."""
@@ -6288,17 +6300,26 @@ def _do_flight_book(offer_uuid, people, seat_blocks, checkin_price, seat_sum,
             return (f"ИСХОД НЕИЗВЕСТЕН: {_err(e)}\nЗапрос ушёл — билет мог "
                     f"выписаться, а деньги списаться. Проверь trips() и приложение, "
                     f"и только если брони нет — flight_book(…, force=True).")
-        order_id = str(started.get("detachKey") or "")
+        # The POST answers async with no order number: `detachKey`/`trackingId` are
+        # per-request nonces, not an order id. The real order appears only when
+        # pay/result flips to Ok. Keep the trackingId only as a log correlation.
+        tracking = str(started.get("trackingId") or started.get("detachKey") or "")
+        order_id = ""
+        # Reconciliation trail readable via diagnostics() (events.jsonl) — NOT only
+        # the journal, so the on-screen «details saved» pointer actually resolves.
+        from . import observability as obs
         if str(started.get("status") or "").lower() == "error":
-            journal.record(attempt, "travel_pay", "failed",
-                           error=_cut(json.dumps(started.get("payload") or {},
-                                                 ensure_ascii=False), 160))
+            journal.record(attempt, "travel_pay", "failed", tracking=tracking,
+                           error=_pay_result_detail(started))
+            obs.emit("flight_pay", attempt_id=attempt, status="error", blame="bank",
+                     detail=_pay_result_detail(started))
             return (f"Банк отклонил оплату: "
                     f"{(started.get('payload') or {}).get('message') or started.get('status')}")
-        # Still "posting", now with the order id: the charge is in flight until
-        # the poll resolves it, and a status outside _TRANSFER_BLOCKING here would
-        # let a crash mid-poll be followed by a second booking.
-        journal.record(attempt, "travel_pay", "posting", order_id=order_id)
+        # Still "posting": the charge is in flight until the poll resolves it, and a
+        # status outside _TRANSFER_BLOCKING here would let a crash mid-poll be
+        # followed by a second booking. No order id yet — only a tracking correlation.
+        journal.record(attempt, "travel_pay", "posting", tracking=tracking)
+        obs.emit("flight_pay", attempt_id=attempt, status="working")
 
         # The booking runs asynchronously: status stays "Working" while the airline
         # is contacted, and the PNR only exists once it flips to Ok.
@@ -6307,30 +6328,48 @@ def _do_flight_book(offer_uuid, people, seat_blocks, checkin_price, seat_sum,
             lambda r: str(r.get("status") or "").lower() not in ("", "working"),
             timeout_ms=_AVIA_PAY_TIMEOUT_MS, interval_ms=_AVIA_PAY_INTERVAL_MS)
         if result is None:
-            journal.record(attempt, "travel_pay", "unknown", order_id=order_id,
+            journal.record(attempt, "travel_pay", "unknown", tracking=tracking,
                            payment_status=f"no-answer-{waited // 1000}s")
+            obs.emit("flight_pay_result", attempt_id=attempt, status="no-answer",
+                     waited_s=waited // 1000)
             return (f"ИСХОД НЕИЗВЕСТЕН: банк не сообщил результат за "
-                    f"{waited // 1000} с (заказ {order_id or 'неизвестен'}). Билет "
-                    f"мог выписаться, а деньги списаться — проверь trips() и "
-                    f"приложение, прежде чем покупать снова.")
+                    f"{waited // 1000} с. Билет мог выписаться, а деньги списаться — "
+                    f"проверь trips() и приложение, прежде чем покупать снова.")
         state = str(result.get("status") or "")
         info = ((result.get("payload") or {}).get("bookingInfo") or {})
         pnr = str(info.get("bookingNumber") or "")
-        order_id = str(info.get("orderNumber") or order_id)
+        order_id = str(info.get("orderNumber") or "")
         if state == "Ok" and pnr:
             journal.record(attempt, "travel_pay", "paid", order_id=order_id,
                            amount=total)
+            obs.emit("flight_pay_result", attempt_id=attempt, status="Ok",
+                     order_id=order_id, amount=total)
             return (f"Куплено: {legs}\nПассажиров {len(people)}, "
                     f"{_money(total, 'RUB')}"
                     + (f" (места {_money(seat_sum, 'RUB')})" if seat_sum else "")
                     + f"\nБронь {pnr} | заказ {order_id}\n"
                     f"Маршрутные квитанции — travel_ticket_file(\"{order_id}\"), "
                     f"поездка — trips().")
-        journal.record(attempt, "travel_pay", "unknown", order_id=order_id,
-                       payment_status=state or "no-status")
-        return (f"Оплата НЕ подтверждена (статус {state or 'нет ответа'}, "
-                f"заказ {order_id or 'неизвестен'}). Деньги могли уйти — проверь "
-                f"trips() и приложение, прежде чем покупать снова.")
+        # Not Ok: persist the HTTP code and a redacted MESSAGE from the pay/result
+        # envelope (works for JSON errors too, which carry no `text`) — the first live
+        # failure could not be diagnosed because nothing was saved. It lands in BOTH
+        # the journal (grocery_attempts) and events.jsonl (diagnostics), so the pointer
+        # below resolves. A 400 here specifically means «no payment in flight for this
+        # session» (nothing charged), but the read alone cannot prove the charge did
+        # not land, so the message stays conservative and points at trips()/the app.
+        detail = _pay_result_detail(result)
+        http = result.get("http")
+        journal.record(attempt, "travel_pay", "unknown", tracking=tracking,
+                       order_id=order_id or "",
+                       payment_status=f"{state or 'no-status'} http={http}",
+                       detail=detail)
+        obs.emit("flight_pay_result", attempt_id=attempt, status=state or "no-status",
+                 http_status=http, order_id=order_id or "", detail=detail)
+        return (f"Оплата НЕ подтверждена (статус {state or 'нет ответа'}"
+                + (f", HTTP {http}" if http else "")
+                + (f", заказ {order_id}" if order_id else "")
+                + "). Деньги могли уйти — проверь trips() и приложение, прежде чем "
+                "покупать снова. Детали — diagnostics() (или grocery_attempts()).")
     except Exception as e:
         return _err(e)
 

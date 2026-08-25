@@ -5067,8 +5067,10 @@ class MobileSession:
         `travel_session_id`/`cookie` explicitly to override the mint.
 
         Returns the whole envelope, not `payload`. `status` is "Working" while the
-        booking runs and `detachKey` IS the orderId, while `payload` is an empty
-        object until it finishes — the ordinary unwrap would lose both.
+        booking runs; `detachKey`/`trackingId` are per-request correlation nonces,
+        NOT the order id — the real order number appears only when pay/result flips to
+        Ok (bookingInfo.orderNumber). `payload` is an empty object until then, so the
+        ordinary unwrap would lose the state.
         """
         if travel_session_id:
             sid = travel_session_id
@@ -5241,13 +5243,53 @@ class MobileSession:
         self._persist()
         return sid
 
-    def flight_pay_result(self) -> dict:
-        """Poll the in-flight payment. Same reason for the raw envelope: "Working"
-        and "Ok" are both HTTP 200 with the state in `status`.
+    def flight_pay_result(self, *, travel_session_id: str = "",
+                          cookie: str = "") -> dict:
+        """Poll the in-flight flight payment — on the SAME web travel session as the POST.
 
-        A 400 here means no payment is in flight for this session — a state
-        answer, not an auth failure."""
-        r = self._call_read("flight_pay_result", return_response=True)
+        The correlation is the TRAVEL WEB SESSION in the query (the value the POST's
+        x-api-signature was computed over) PLUS the web cookie — that pair, nothing
+        else. The X-Detach-Key/-Travel-Session-Id/-Trace-Id headers are not validated
+        by the gateway: in the capture the detach key even differs between the POST and
+        the polls and the travel-session-id is constant across the whole flow, yet the
+        POST still went through — so only their PRESENCE matters, not their values. So
+        the result MUST be read on the session the POST used, with X-Travel-Context:
+        webview on the web cookie — NOT
+        the mobile Bearer session. Reading it on the mobile session (as a plain
+        `_call_read` did) asks the gateway about a payment THAT session never made; it
+        answers 400 «no payment in flight», which _envelope reports as an unparseable
+        body — turning an ordinary poll into a false «исход неизвестен, деньги могли
+        уйти». That was the bug behind the first live attempt.
+
+        "Working" and "Ok" are both HTTP 200 with the state in `status`; a 400 means no
+        payment is in flight for this session — a state answer, not an auth failure.
+        The raw envelope is returned either way (so neither the state nor bookingInfo
+        is lost) and _envelope never raises on a non-2xx.
+        """
+        import uuid as _uuid
+        sid = travel_session_id or self.travel_session_id
+        if not sid:
+            raise TbankApiError(
+                "NO_TRAVEL_SESSION",
+                "нет travel-сессии — результат оплаты опрашивать не на чем")
+        ck = cookie or self._wide_cookie()
+        query = urllib.parse.urlencode({"context": "travel", "sessionId": sid})
+        url = "https://www.tbank.ru/api/travel/flight/booking/pay/result?" + query
+        # The webview headers the POST also carries. These detach/trace ids are NOT
+        # load-bearing — the gateway keys off the query session + cookie, not the
+        # headers — so a fresh set per call is fine; only their presence matters.
+        headers = {
+            "Accept": "*/*",
+            "Content-Type": "application/json",
+            "User-Agent": TPAY_WEBVIEW_UA,
+            "X-Travel-Context": "webview",
+            "X-Detach-Key": str(_uuid.uuid4()),
+            "X-Detach-Timeout": "5000",
+            "X-Travel-Session-Id": str(_uuid.uuid4()),
+            "X-Trace-Id": str(_uuid.uuid4()),
+            "Cookie": ck,
+        }
+        r = self._http.get(url, headers=headers, timeout=30)
         return self._envelope(r)
 
     def flight_documents(self, order_id: str) -> list:

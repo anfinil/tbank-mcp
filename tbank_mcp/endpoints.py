@@ -1495,15 +1495,16 @@ BUILTIN_ENDPOINTS.update({
                             "params": {"context": "travel"}, **_TRAVEL_MB_POST},
     # The money call. It BOOKS AND PAYS in one POST — there is no separate hold
     # step for flights — and answers asynchronously: status "Working" plus a
-    # detachKey that IS the orderId. The result is polled from pay/result.
+    # detachKey/trackingId that are per-request nonces, NOT the order id (that
+    # appears only when pay/result flips to Ok). The result is polled from pay/result.
     "flight_pay": {"method": "POST", "host": "https://www.tbank.ru",
                    "path": "/api/prefill/proxy/travel_pay",
                    "params": {"context": "travel"}, **_TRAVEL_MB_POST},
-    # Polled until status leaves "Working": Ok carries bookingInfo.bookingNumber
-    # (the PNR). A 400 here means no payment is in flight, not an auth failure.
-    "flight_pay_result": {"method": "GET", "host": "https://www.tbank.ru",
-                          "path": "/api/travel/flight/booking/pay/result",
-                          "params": {"context": "travel"}, **_TRAVEL_MB},
+    # pay/result is NOT a mobile-BFF read: it must be polled on the SAME web travel
+    # session as the pay POST (X-Travel-Context: webview, web cookie, no Bearer) — the
+    # gateway ties the in-flight payment to that session. So it is built directly in
+    # client.flight_pay_result(), not from a _TRAVEL_MB template here (a mobile-session
+    # read answered 400 «no payment in flight» and read as «исход неизвестен»).
     # {"orderId"} -> the order's documents (itinerary receipts), each with a
     # document_id fetched separately as PDF bytes.
     "flight_documents": {"method": "POST", "host": "https://www.tbank.ru",

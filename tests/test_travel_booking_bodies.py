@@ -864,6 +864,108 @@ def test_flight_pay_mint_failure_never_reads_as_unknown():
     print("  flight_pay: every mint failure reads «not sent», never «unknown», no POST")
 
 
+def test_flight_pay_result_polls_the_web_session_not_mobile():
+    """The pay POST and its result poll must run on the SAME web travel session — the
+    gateway ties the in-flight payment to that session, not to any detach key. Polling
+    on the mobile session (the first-live-attempt bug) asks the gateway about a payment
+    that session never made → 400 → a false «исход неизвестен». Pin: the result GET
+    carries context=travel + the web sessionId, X-Travel-Context: webview, NO Bearer;
+    and refuses when there is no travel session to poll. Cross-checked against the
+    captured poll's shape."""
+    import urllib.parse
+    from tbank_mcp.client import MobileSession, TbankApiError
+
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            return {"status": "Working", "payload": {}}
+
+    posted = {}
+
+    class Http:
+        def get(self, url, headers=None, timeout=None):
+            posted["url"] = url
+            posted["headers"] = headers or {}
+            return Resp()
+
+        def post(self, *a, **k):
+            raise AssertionError("pay/result must be a GET, not a POST")
+
+    s = MobileSession("sid", "rt")
+    s.travel_session_id = "WEBSID.authenticon-pod-x"
+    s.cookie_str = "__P__wuid=w; api_sso_id=a; sso_used=1"
+    s._http = Http()
+    env = s.flight_pay_result()
+    check(env.get("status") == "Working", f"the envelope must pass through: {env}")
+    check("/api/travel/flight/booking/pay/result" in posted["url"],
+          f"wrong path: {posted['url']}")
+    check("sessionId=WEBSID.authenticon-pod-x" in posted["url"]
+          and "context=travel" in posted["url"],
+          f"result must poll the WEB travel session: {posted['url']}")
+    h = posted["headers"]
+    check(h.get("X-Travel-Context") == "webview",
+          f"result poll must be webview context, was {h.get('X-Travel-Context')!r}")
+    check("Authorization" not in h,
+          "result poll must NOT carry a mobile Bearer — it is a web-cookie request")
+    check("X-Detach-Key" in h and "X-Trace-Id" in h and "Cookie" in h,
+          "result poll carries the webview detach/trace nonces and the web cookie")
+
+    # With no travel session there is nothing to poll — refuse, do not fall back to
+    # the mobile session (that is exactly the bug this replaces).
+    s2 = MobileSession("sid", "rt")
+    try:
+        s2.flight_pay_result()
+        failures.append("flight_pay_result polled with no travel session")
+    except TbankApiError as e:
+        check(e.result_code == "NO_TRAVEL_SESSION",
+              f"must refuse without a travel session: {e.result_code}")
+
+    # Capture cross-check: the real poll uses exactly {context, sessionId}, webview, no Bearer.
+    capture = os.environ.get("TBANK_CAPTURE_TRAVEL",
+                             os.path.expanduser("~/tbank-app/captures-flight-train.xml"))
+    if os.path.exists(capture):
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
+        import regen_travel as R
+        items = R.items(capture)
+        idx = next(i for i, it in enumerate(items)
+                   if b"booking/pay/result" in R.raw(it, "request").split(b"\r\n", 1)[0])
+        head = R.raw(items[idx], "request").split(b"\r\n\r\n", 1)[0].decode("latin1")
+        line = head.split("\r\n", 1)[0]
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(line.split(" ")[1]).query)
+        check(sorted(q) == ["context", "sessionId"],
+              f"real pay/result query keys drifted from the capture: {sorted(q)}")
+
+        def has(name):
+            return any(l.lower().startswith(name + ":") for l in head.split("\r\n")[1:])
+        check(has("x-travel-context") and not has("authorization"),
+              "the real poll is webview context with no Bearer — our build must match")
+        print("  flight_pay_result: polls the web session (webview, no Bearer), pinned vs capture")
+    else:
+        print("  flight_pay_result: web-session poll pinned (capture absent — cross-check skipped)")
+
+
+def test_pay_result_detail_reads_both_envelope_shapes():
+    """A non-Ok pay/result must be diagnosable. _envelope yields two shapes: a JSON
+    error (message in errorMessage/payload.message, and NO `text` key) and a non-JSON
+    body (message in `text`). The detail extractor must read BOTH — the first version
+    read only `text` and silently dropped every JSON error message, which is the
+    common gateway shape."""
+    from tbank_mcp.server import _pay_result_detail
+    j = {"status": "Error", "http": 400, "payload": {"message": "Проверьте данные"}}
+    check("Проверьте данные" in _pay_result_detail(j),
+          f"must read payload.message from a JSON error: {_pay_result_detail(j)!r}")
+    e = {"status": "Error", "http": 400, "errorMessage": "Field value is wrong"}
+    check("Field value is wrong" in _pay_result_detail(e),
+          f"must read errorMessage: {_pay_result_detail(e)!r}")
+    t = {"status": "Unreadable", "http": 400, "text": "Bad Request"}
+    check("Bad Request" in _pay_result_detail(t),
+          f"must fall back to text for a non-JSON body: {_pay_result_detail(t)!r}")
+    check(_pay_result_detail({"status": "X", "http": 400}) == "",
+          "no message anywhere → empty string, not a crash")
+    print("  pay/result detail: reads JSON message AND non-JSON text, empty when absent")
+
+
 def test_travel_link_session_caches_within_window():
     """The mint is cached for the ~11-min portal window: a second call without force,
     inside TRAVEL_PORTAL_TTL, must REUSE it and not re-run the bridge (re-minting burns
@@ -993,6 +1095,8 @@ def main():
                test_flight_pay_without_sso_sends_nothing,
                test_travel_link_bridge_drives_the_captured_legs,
                test_flight_pay_with_preset_session_skips_the_bridge,
+               test_flight_pay_result_polls_the_web_session_not_mobile,
+               test_pay_result_detail_reads_both_envelope_shapes,
                test_flight_pay_mint_failure_never_reads_as_unknown,
                test_travel_link_session_caches_within_window,
                test_travel_link_auth_token_refuses_empty,
