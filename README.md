@@ -11,10 +11,6 @@
 
 The buttons register the `tbank-mcp` command — run `pip install tbank-mcp` first.
 
-## Demo
-
-[**Watch the 3-minute demo (RU)**](https://youtu.be/hNpeYKgGI5k) — Claude Code shows masked card details, finds subscriptions in statements, catches a wrong SBP transfer recipient and cancels, orders groceries with checkout, and buys cinema tickets. Real session, only the waits are sped up.
-
 ## Features
 
 - **90 tools**: accounts, cards, documents, operations, grocery ordering, cinema and
