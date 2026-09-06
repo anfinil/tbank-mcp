@@ -28,10 +28,29 @@
 """
 import getpass
 import os
+import re
 import sys
 
 from tbank_mcp.client import TbankApiError
 from tbank_mcp import server as srv
+
+# The head of every NEXT_STEP hint: «Следующий шаг — otp.» / «Следующий шаг —
+# 'complete'.» (the unknown-step form quotes the name).
+_STEP_RE = re.compile(r"^Следующий шаг — '?([\w-]+)'?")
+
+
+def _next_step(e: TbankApiError) -> str:
+    """The step the bank named in a NEXT_STEP error; '' for any other error.
+
+    Read from the hint's head, not by substring over the whole message: the
+    generic hint for a step this CLI does not know names EVERY tool
+    («confirm_otp / confirm_pin»), so `"pin" in message` was true for any
+    unknown step — the CLI then sent a PIN the bank had not asked for and the
+    bank answered invalid_request, with the SMS already spent."""
+    if e.result_code != "NEXT_STEP":
+        return ""
+    m = _STEP_RE.match(str(e.message))
+    return m.group(1) if m else ""
 
 
 USAGE = """Usage:
@@ -73,7 +92,7 @@ def login(phone):
         s.confirm_step("otp", otp)
         print("    OTP принят.")
     except TbankApiError as e:
-        if "password" not in str(e.message).lower():
+        if _next_step(e) != "password":
             print(f"    ОШИБКА: {e}")
             return 1
         # bank wants password — continue to step 3
@@ -97,7 +116,7 @@ def login(phone):
     try:
         s.confirm_step("password", password)
     except TbankApiError as e:
-        if "pin" in str(e.message).lower():
+        if _next_step(e) == "pin":
             print("    Банк просит PIN.")
             if os.environ.get("TBANK_PIN"):
                 pin = os.environ["TBANK_PIN"]

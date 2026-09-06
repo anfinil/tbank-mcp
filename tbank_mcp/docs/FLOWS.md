@@ -24,6 +24,9 @@ Call the matching `confirm_*` tool.
 1. `login(phone)` → SMS OTP sent (or password step). phone = full form, e.g. `+7XXXXXXXXXX`.
 2. `confirm_otp(otp)` → if bank returns `step: password`, continue.
 3. `confirm_password(password)` → session minted. Persists `session.json`.
+   Some accounts answer the last factor with `step: complete` instead of a code;
+   the client then posts that hop itself (no input) and takes the code from its
+   reply, so nothing changes for the caller.
 
 ## 1. Session / login (automatic, no OTP)
 
