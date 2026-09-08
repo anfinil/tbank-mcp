@@ -2205,6 +2205,35 @@ class MobileSession:
             raise TbankApiError(str(rj.get("error")),
                                 json.dumps(_redact_value(rj), ensure_ascii=False)[:300])
         code = rj.get("code")
+        if not code and str(rj.get("step", "") or "") == "complete":
+            # Every factor is accepted and the bank names one more hop, `complete`,
+            # that carries no user input: POST `step=complete` to the same cid, and
+            # the code arrives in THAT answer ({code, session_state}). Seen live
+            # after the password step on an account whose password answer did not
+            # carry the code — the capture's account never hit it, so nothing here
+            # sent the hop. It is the same request neolegoff_bank's auth_complete()
+            # sends, and it goes bare — no value, no chained token — which is the
+            # shape proven there. Before this the flow surfaced as NEXT_STEP
+            # 'complete', and the login CLI, matching the substring "pin" in the
+            # generic hint's «confirm_pin», answered with a PIN the bank had not
+            # asked for and got invalid_request.
+            r = self._http.post(f"{ID_BASE}/auth/step?cid={self._login_cid}&ccc=true&cpswc=true",
+                               data="step=complete",
+                               headers={**base, "Content-Type": "application/x-www-form-urlencoded"},
+                               timeout=30)
+            try:
+                rj = r.json()
+            except Exception:
+                raise TbankApiError("HTTP_" + str(r.status_code), r.text[:300])
+            # Chain the token like every other step: if this answer names a FURTHER
+            # step instead of the code, the caller's next confirm_step must not
+            # replay the one from before the hop.
+            if rj.get("token"):
+                self._login_token = rj["token"]
+            if rj.get("error"):
+                raise TbankApiError(str(rj.get("error")),
+                                    json.dumps(_redact_value(rj), ensure_ascii=False)[:300])
+            code = rj.get("code")
         if not code:
             # Not an error: the login is alive and the bank named the NEXT step in
             # the response. This used to dump the raw JSON under "NO_CODE", so the
