@@ -52,6 +52,8 @@ from test_requisites import LegalSession, fixture, run_tool  # noqa: E402
 # correctness depends only on accountType / currency / balance, not on the digits.
 # The account record is shaped as accounts_light returns it: moneyAmount.value on a
 # Credit account is the AVAILABLE credit, alongside creditLimit and debtAmount.
+# Declared synthetic in tests/test_no_personal_data.py's ALLOWED set (the 001x
+# series is this file's block there).
 CREDIT_ID = "0000000011"
 DEBIT_ID = "0000000010"
 
