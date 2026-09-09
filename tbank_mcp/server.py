@@ -398,14 +398,28 @@ async def _resolve_source(ctx, from_account):
     if not _elicitation_available(ctx):
         return "", None
     try:
-        accts = await asyncio.to_thread(lambda: _require().ruble_source_accounts())
+        debit = await asyncio.to_thread(lambda: _require().ruble_source_accounts())
     except Exception:
         return "", None                    # body's _source_account() owns the error
+    try:
+        # Independent + defensive: a credit-lookup failure (or a session that does
+        # not expose one) must never suppress the debit picker — worst case the
+        # credit card is simply not offered, which is the old behaviour.
+        credit = await asyncio.to_thread(lambda: _require().credit_source_accounts())
+    except Exception:
+        credit = []
+    # Credit cards are offered too — paying a legal entity, a person or a bill from
+    # a credit card is app-supported — but they are marked and listed AFTER the
+    # debit accounts, so the human never confuses spending their own money with
+    # borrowing. The DEFAULT (no picker, or a single account) still never lands on
+    # a credit line: only ruble_source_accounts seeds _source_account's guess.
+    accts = debit + credit
     if len(accts) <= 1:
         return "", None                    # 0 → body raises; 1 → the guess is right
     labels, by_label = [], {}
     for a in accts:
-        label = f"{a['id']} · {a['name']} · {_money(a['balance'], 'RUB')}"
+        kind = " · КРЕДИТНАЯ (в долг)" if a.get("credit") else ""
+        label = f"{a['id']} · {a['name']} · {_money(a['balance'], 'RUB')}{kind}"
         labels.append(label); by_label[label] = a["id"]
     outcome, chosen = await _elicit_choice(ctx, "С какого счёта списать?", labels)
     if outcome == ELICIT_ACCEPT:
@@ -2696,7 +2710,9 @@ async def transfer(amount: float, to_account: str, description: str = "",
 
     from_account — счёт списания из list_accounts(). Пусто = первый рублёвый Current
     с положительным балансом; это ДОГАДКА, поэтому если пользователь выбирал счёт —
-    передай его явно, иначе спишется с другого.
+    передай его явно, иначе спишется с другого. Кредитную карту как источник тоже
+    можно выбрать — она есть в окне выбора счёта или передаётся явно; по умолчанию
+    на неё НИКОГДА не встаёт.
     phone/СБП (по умолчанию): to_account=телефон. Если pointer_link_id не передан —
     получатель резолвится АВТОМАТИЧЕСКИ (transfer_sbp_resolve): выберется дефолтный
     кандидат; при нескольких без дефолта вернётся RECIPIENT_MULTIPLE_BANKS со списком.
@@ -3088,7 +3104,11 @@ async def transfer_requisites(amount: float = 0, qr: str = "", comment: str = ""
     счёта с НДС: в обоих захваченных платежах юрлицу приложение слало "322", а сам
     НДС стоял строкой в назначении платежа. "323" — только по прямой просьбе.
     personal_account — лицевой счёт, только для ЖКХ-платежей юрлицу.
-    from_account — счёт списания из list_accounts(); пусто = первый рублёвый.
+    from_account — счёт списания из list_accounts(); пусто = первый рублёвый Current
+    (дебетовый). Чтобы платить юрлицу с КРЕДИТНОЙ карты, передай её счёт явно
+    (from_account="<id кредитного счёта>") или выбери её в окне выбора счёта —
+    перевод юрлицу с кредитки поддерживается; unfinishedFlag: true в предпросмотре
+    для кредитного источника это норма, а не отказ.
     force=True — повторить платёж с неподтверждённым исходом, только после того как
     пользователь проверил в приложении, что деньги не ушли.
 
@@ -3641,11 +3661,15 @@ def payment_commission(body: str = "") -> str:
 
     НЕ пиши pointerType:"ACCOUNT" — банк отвечает INVALID_REQUEST_DATA.
     providerFields бери ЦЕЛИКОМ у одного кандидата transfer_sbp_resolve().
-    "unfinishedFlag": true в ответе = это НЕ котировка: банк отвечает так на
-    предпросмотр с moneyAmount 0 и на любой, где получатель не определён
-    (providerFields без pointerLinkId). «Комиссия не взимается» рядом с этим флагом
-    не значит ни что комиссии нет, ни что получатель найден. Считай посчитанной
-    только комиссию с unfinishedFlag: false.
+    "unfinishedFlag": true в ответе сам по себе НЕ повод отказываться от платежа.
+    Банк отвечает так в трёх случаях: (1) moneyAmount 0; (2) получатель не определён
+    (P2P без pointerLinkId в providerFields) — вот здесь платить нельзя; (3) счёт
+    списания — КРЕДИТНАЯ карта: перевод юрлицу (transfer-legal) с кредитки штатно
+    приходит с unfinishedFlag: true даже при корректных, полностью заданных
+    реквизитах — это нормально, приложение этот флаг не читает и платёж проходит.
+    Различай (3) и (2): если сумма > 0 и реквизиты/pointerLinkId на месте, расчёт
+    годен, даже когда флаг true. «Комиссия не взимается» рядом с флагом не
+    гарантирует, что комиссии не будет (у кредитки она может появиться при списании).
     paymentType здесь обязателен, хотя в самом переводе его быть НЕ должно."""
     try:
         s = _require(); s.ensure_fresh()

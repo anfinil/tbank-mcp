@@ -151,11 +151,15 @@ You normally just call a read tool; the above runs under the hood. Call
    **`paymentType:"Transfer"`, which commission REQUIRES and the transfer itself must
    NOT carry**: it appears in every captured commission body and in none of the three
    captured `/v1/pay` bodies. Do NOT use `pointerType:"ACCOUNT"`, the bank rejects it
-   → INVALID_REQUEST_DATA. `"unfinishedFlag": true` in the reply means the preview is
-   not a quote: the bank answers that to `moneyAmount:0` and to any body whose
-   `providerFields` do not identify a recipient, and pairs it with «Комиссия не
-   взимается» and a 3 000 000 ₽ ceiling for any phone at all. Only
-   `unfinishedFlag:false` is a fee.
+   → INVALID_REQUEST_DATA. `"unfinishedFlag": true` is NOT, by itself, a reason to
+   refuse. The bank returns it in three cases: (1) `moneyAmount:0`; (2) the
+   `providerFields` do not identify a recipient (P2P without `pointerLinkId`) — that
+   one is genuinely unpayable; (3) the source account is a CREDIT card — a
+   transfer-legal preview from a credit card comes back `unfinishedFlag: true` even
+   with correct, fully-specified requisites, and that is normal (the app does not
+   read the flag; the payment goes through). Tell (3) from (2): amount > 0 with the
+   recipient fields present means the quote is usable. «Комиссия не взимается» beside
+   the flag does not promise a zero fee (a credit source may be charged at pay time).
 3. `transfer(amount, to_account, description, provider, bank_member_id, masked_fio,
    pointer_link_id, from_account, force)` → moves REAL money. **The confirmation is
    the tool's own button:** it shows the user «Перевести/Отмена» (elicitation, for

@@ -3940,6 +3940,43 @@ class MobileSession:
                             "balance": bal})
         return out
 
+    def credit_source_accounts(self) -> list[dict]:
+        """Every Credit RUB account with spendable limit left — the credit-card
+        payers, in the bank's order. [{id, name, balance, credit: True}].
+
+        `balance` is the AVAILABLE credit, not the debt: on a Credit account
+        accounts_light's `moneyAmount.value` is what is still spendable, alongside
+        `creditLimit` and `debtAmount`. Deliberately SEPARATE from
+        ruble_source_accounts so the default
+        source (`_source_account`) never lands on a credit line by accident; the
+        transfer/pay source PICKER offers these alongside the debit accounts, so a
+        person can choose to pay a legal entity (transfer-legal), a person or a bill
+        from a credit card — an app-supported route. Note: a credit-card source
+        makes the transfer-legal commission preview come back with
+        `unfinishedFlag: true` even for correct, fully-specified requisites; that is
+        normal for this source and does not mean the payment is blocked (the app
+        does not read that flag)."""
+        out = []
+        for a in (self.list_accounts() or []):
+            if not isinstance(a, dict) or (a.get("accountType") or "") != "Credit":
+                continue
+            money = a.get("moneyAmount") or {}
+            bal = money.get("value", 0) if isinstance(money, dict) else 0
+            try:
+                bal = float(bal)
+            except (TypeError, ValueError):
+                bal = 0.0
+            if bal <= 0:                       # no limit left → not a payer
+                continue
+            cur = a.get("currency")
+            cn = cur.get("name") if isinstance(cur, dict) else cur
+            if cn and str(cn).upper() not in ("RUB", "RUBLES", "РОССИЙСКИЙ РУБЛЬ", "₽"):
+                continue
+            if a.get("id"):
+                out.append({"id": str(a["id"]), "name": str(a.get("name") or ""),
+                            "balance": bal, "credit": True})
+        return out
+
     def _source_account(self) -> str:
         """First Current RUB account id with a positive balance — the payer/source
         for transfers (capture: payParameters.account = 10-char source id)."""
