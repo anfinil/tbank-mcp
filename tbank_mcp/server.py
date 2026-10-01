@@ -5809,9 +5809,15 @@ def train_calendar(origin: str, destination: str, limit: int = 30) -> str:
 def flight_search(from_code: str, to_code: str, date: str, adults: int = 1,
                   children: int = 0, infants: int = 0,
                   only_bookable: bool = True, limit: int = 15,
-                  max_batches: int = 8) -> str:
+                  max_batches: int = 8, direct_only: bool = False,
+                  max_price: float = 0) -> str:
     """Поиск авиабилетов. from_code/to_code — коды IATA (MOW, LED, SVO),
     date — YYYY-MM-DD.
+
+    direct_only=True оставляет только рейсы без пересадок, max_price — потолок
+    цены за всё предложение. Оба отсекают ДО limit, поэтому limit=15 с
+    direct_only покажет 15 прямых, а не 15 самых дешёвых стыковок. Без этого
+    прямой рейс на ближней дате лежит на сотой строке выдачи.
 
     Резолвера «название города → код» у банка нет. Коды вместе с названиями
     отдаёт flight_history() — оттуда их и бери, а не угадывай.
@@ -5851,6 +5857,28 @@ def flight_search(from_code: str, to_code: str, date: str, adults: int = 1,
                 return 0.0
 
         offers = sorted(offers, key=lambda o: money(o) or 1e12)
+
+        # Both filters run BEFORE limit: the row cap is a slice of the list, so
+        # filtering after it would still show whatever the cap caught first.
+        def stops(o):
+            idx = [i for i in (o.get("flights") or []) if 0 <= i < len(flights)]
+            if not idx:
+                return 0
+            return max(len(flights[i].get("flightSegments") or []) - 1 for i in idx)
+
+        kept = len(offers)
+        if direct_only:
+            offers = [o for o in offers if stops(o) == 0]
+        if max_price:
+            offers = [o for o in offers if money(o) <= max_price]
+        dropped = kept - len(offers)
+        if not offers:
+            crit = ", ".join(c for c in (
+                "без пересадок" if direct_only else "",
+                f"не дороже {max_price:.0f} ₽" if max_price else "") if c)
+            return (f"Рейсов {from_code}→{to_code} на {date} под условие "
+                    f"({crit}) не нашлось: отсеяны все {kept} предложений.")
+
         names = ((res.get("info") or {}).get("carrierNames") or {})
 
         def leg(i):
@@ -5885,6 +5913,12 @@ def flight_search(from_code: str, to_code: str, date: str, adults: int = 1,
 
         head = (f"Рейсы {from_code}→{to_code} на {date}"
                 + (" (бронируемые в банке)" if only_bookable else "")
+                # Say what the filters threw away: a short list otherwise reads
+                # as "the bank has nothing", not "the filter cut it".
+                + (f" | фильтр: {'без пересадок' if direct_only else ''}"
+                   f"{', ' if direct_only and max_price else ''}"
+                   f"{f'до {max_price:.0f} ₽' if max_price else ''}"
+                   f" — отсеяно {dropped} из {kept}" if dropped else "")
                 # Each row carries an offerId; name the tool that turns it into
                 # fares so the listing points somewhere instead of dead-ending.
                 + "\nДальше по offerId: flight_offer(offer_id) — тарифы, багаж, "
